@@ -1,6 +1,6 @@
 {
     "simulation": {
-        "addressmapping": "../DRAMSys/configs/addressmapping/am_lpddr4_8Gbx16_brc.json",
+        "addressmapping": "my_robaco.json",
         "mcconfig": "../DRAMSys/configs/mcconfig/fr_fcfs.json",
         "memspec": "../DRAMSys/configs/memspec/JEDEC_8Gb_LPDDR4-3200_16bit.json",
         "simconfig": "../DRAMSys/configs/simconfig/example.json",
