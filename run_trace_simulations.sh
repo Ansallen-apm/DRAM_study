@@ -35,14 +35,6 @@ run_sim() {
     $BIN $config > temp.log 2>&1
 
     # Extract results
-    # Adjust grep/awk based on log format
-    # Log format: "AVG BW:         23.92  Gb/s | 2.99   GB/s | 46.73  %"
-    # Columns: 1:AVG 2:BW: 3:Gb/s_val 4:Gb/s 5:| 6:GB/s_val 7:GB/s 8:| 9:Util_val 10:%
-    # Wait, in previous step I used $7 and $10?
-    # "DRAMSys.controller0       AVG BW:         23.92  Gb/s | 2.99   GB/s | 46.73  %"
-    # 1:DRAMSys.controller0 2:AVG 3:BW: 4:23.92 5:Gb/s 6:| 7:2.99 8:GB/s 9:| 10:46.73 11:%
-    # So $7 is GB/s, $10 is %.
-
     bw=$(grep "AVG BW" temp.log | head -n 1 | awk '{print $7}')
     util=$(grep "AVG BW" temp.log | head -n 1 | awk '{print $10}')
 
@@ -66,3 +58,9 @@ for size in "${SIZES[@]}"; do
 done
 
 cat $RESULTS_FILE
+
+# Convert to Excel
+if command -v python3 &> /dev/null; then
+    echo "Converting results to Excel..."
+    python3 convert_results_to_excel.py
+fi
