@@ -1,0 +1,21 @@
+{
+    "simulation": {
+        "addressmapping": "my_robaco.json",
+        "mcconfig": "../DRAMSys/configs/mcconfig/fr_fcfs.json",
+        "memspec": "../DRAMSys/configs/memspec/JEDEC_8Gb_LPDDR4-3200_16bit.json",
+        "simconfig": "../DRAMSys/configs/simconfig/example.json",
+        "simulationid": "lpddr4-seq-256-RW",
+        "tracesetup": [
+            {
+                "type": "generator",
+                "clkMhz": 200,
+                "name": "seq_gen",
+                "numRequests": 10000,
+                "rwRatio": 1.0,
+                "addressDistribution": "sequential",
+                "addressIncrement": 256,
+                "dataLength": 256
+            }
+        ]
+    }
+}
