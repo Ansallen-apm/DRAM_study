@@ -126,7 +126,7 @@
                 "dataLength": 1024,
                 "maxPendingReadRequests": 8,
                 "seed": 0,
-                "startAddress": 0
+                "minAddress": 0
             },
             {
                 "type": "generator",
@@ -139,7 +139,7 @@
                 "dataLength": 1024,
                 "maxPendingReadRequests": 8,
                 "seed": 0,
-                "startAddress": 131072
+                "minAddress": 131072
             },
             {
                 "type": "generator",
@@ -152,7 +152,7 @@
                 "dataLength": 1024,
                 "maxPendingReadRequests": 8,
                 "seed": 0,
-                "startAddress": 262144
+                "minAddress": 262144
             },
             {
                 "type": "generator",
@@ -165,7 +165,7 @@
                 "dataLength": 1024,
                 "maxPendingReadRequests": 8,
                 "seed": 0,
-                "startAddress": 393216
+                "minAddress": 393216
             }
         ]
     }

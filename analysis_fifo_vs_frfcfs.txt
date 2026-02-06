@@ -6,21 +6,35 @@ Configuration:
 - Traffic: Sequential Read, 1KB Burst
 - Offsets: 0, 128KB, 256KB, 384KB
 - Address Mapping: Adjusted to standard x64 mapping (Byte:0-2, Col:3-12, Bank:13-15, Row:16-29).
+- Note: Masters are configured with `minAddress` to ensure they access distinct address ranges.
+  - Master 0: Bank 0, Row 0
+  - Master 1: Bank 0, Row 2 (approx)
+  - Master 2: Bank 0, Row 4 (approx)
+  - Master 3: Bank 0, Row 6 (approx)
+  - All masters compete for Bank 0 but target different Rows.
 
 Empirical Results (DRAMSys Simulation):
-- FIFO Utilization: 91.78% (Bandwidth: 46.91 GB/s)
-- FR-FCFS Utilization: 91.78% (Bandwidth: 46.91 GB/s)
+- FIFO Utilization: 32.22% (Bandwidth: 16.47 GB/s)
+- FR-FCFS Utilization: 50.83% (Bandwidth: 25.98 GB/s)
 
 Analysis:
-Contrary to the theoretical prediction of thrashing, FIFO performed exceptionally well, matching FR-FCFS.
-This is due to the "1KB Burst" size specified in the generator.
-- A 1KB request corresponds to 128 beats of data (at 64-bit width).
-- LPDDR4 Burst Length is 16. So 1KB = 8 DRAM bursts.
-- The system appears to process the 1KB TLM transaction by issuing these 8 DRAM commands consecutively for the same master before switching to the next master.
-- This creates a sequence of 8 "Row Hits" (Page Hits) for Master 0 (Row A), followed by 8 Row Hits for Master 1 (Row B).
-- The Row Activation overhead (tRP + tRCD) is amortized over 8 bursts (512 cycles of data transfer).
-- This "natural batching" inherent in large request sizes minimizes the penalty of Row Conflicts between masters.
-- Therefore, the reordering capability of FR-FCFS provides no additional benefit in this specific scenario, as the command stream is already optimized by the large transaction granularity.
+
+1. FIFO Performance (32%):
+   - The FIFO scheduler processes requests in arrival order.
+   - The Arbiter interleaves requests from the 4 masters (M0, M1, M2, M3, ...).
+   - Since all masters target the same Bank (Bank 0) but different Rows, every switch between masters causes a Row Conflict.
+   - Sequence: Act B0,R0 -> Read 1KB -> Pre B0 -> Act B0,R2 -> Read 1KB -> Pre B0 ...
+   - Overhead: tRP (Precharge) + tRCD (Activate) + tCAS + Burst Time.
+   - With 1KB bursts (64 cycles on bus) and high overhead (~116+ cycles), the efficiency drops to ~32-35%.
+   - The "thrashing" behavior is clearly observed.
+
+2. FR-FCFS Performance (51%):
+   - The FR-FCFS scheduler reorders requests to prioritize Row Hits (requests targeting the currently open row).
+   - It scans the request buffer (size 32) and groups requests from the same master (since they target the same row).
+   - Instead of switching after every 1KB request, it batches multiple requests (likely limited by `maxPendingReadRequests` = 8).
+   - Sequence: Act B0,R0 -> Read 8KB (8x1KB) -> Pre B0 -> Act B0,R2 -> Read 8KB ...
+   - By amortizing the Row Activation overhead over 8 requests instead of 1, the utilization improves significantly to ~51%.
+   - Ideally, with infinite buffer depth, it could reach near 100%, but it is limited here by the number of pending requests available in the buffer to be scheduled.
 
 Conclusion:
-For large burst sizes (1KB), the choice of scheduler (FIFO vs FR-FCFS) has negligible impact on utilization, as the burst size itself enforces high row locality. Both achieve near-peak bandwidth (~92%).
+In a scenario with high Bank Contention (multiple masters accessing different rows of the same bank), FR-FCFS provides a substantial performance benefit (+57% throughput improvement) over FIFO by reordering requests to minimize costly Row Activate/Precharge cycles.
