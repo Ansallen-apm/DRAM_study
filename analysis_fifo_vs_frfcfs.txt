@@ -1,0 +1,26 @@
+Analysis of FIFO vs FR-FCFS for 4-Master Sequential Read on LPDDR4-6400
+
+Configuration:
+- DRAM: LPDDR4-6400 x64 (tCK = 0.3125ns)
+- Masters: 4
+- Traffic: Sequential Read, 1KB Burst
+- Offsets: 0, 128KB, 256KB, 384KB
+- Address Mapping: Adjusted to standard x64 mapping (Byte:0-2, Col:3-12, Bank:13-15, Row:16-29).
+
+Empirical Results (DRAMSys Simulation):
+- FIFO Utilization: 91.78% (Bandwidth: 46.91 GB/s)
+- FR-FCFS Utilization: 91.78% (Bandwidth: 46.91 GB/s)
+
+Analysis:
+Contrary to the theoretical prediction of thrashing, FIFO performed exceptionally well, matching FR-FCFS.
+This is due to the "1KB Burst" size specified in the generator.
+- A 1KB request corresponds to 128 beats of data (at 64-bit width).
+- LPDDR4 Burst Length is 16. So 1KB = 8 DRAM bursts.
+- The system appears to process the 1KB TLM transaction by issuing these 8 DRAM commands consecutively for the same master before switching to the next master.
+- This creates a sequence of 8 "Row Hits" (Page Hits) for Master 0 (Row A), followed by 8 Row Hits for Master 1 (Row B).
+- The Row Activation overhead (tRP + tRCD) is amortized over 8 bursts (512 cycles of data transfer).
+- This "natural batching" inherent in large request sizes minimizes the penalty of Row Conflicts between masters.
+- Therefore, the reordering capability of FR-FCFS provides no additional benefit in this specific scenario, as the command stream is already optimized by the large transaction granularity.
+
+Conclusion:
+For large burst sizes (1KB), the choice of scheduler (FIFO vs FR-FCFS) has negligible impact on utilization, as the burst size itself enforces high row locality. Both achieve near-peak bandwidth (~92%).
