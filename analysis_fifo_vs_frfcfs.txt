@@ -1,4 +1,4 @@
-Analysis of FIFO vs FR-FCFS for 4-Master Sequential Read on LPDDR4-6400 (High Load)
+Analysis of FIFO vs FR-FCFS for 4-Master Sequential Read on LPDDR4-6400 (Deeper Pending Queue)
 
 Configuration:
 - DRAM: LPDDR4-6400 x64 (tCK = 0.3125ns)
@@ -6,23 +6,31 @@ Configuration:
 - Traffic: Sequential Read, 1KB Burst
 - Offsets: 0, 128KB, 256KB, 384KB
 - Master Clock: 1000 MHz
-- Request Count: 100,000 requests per master (Total 400,000)
-- Note: User requested 1M requests, but simulations were capped at 100k due to memory constraints. The results at 100k are highly stable and representative of steady-state behavior.
+- Request Count: 10,000 requests per master
+- Max Pending Requests: 32 (increased from 8)
 
-Empirical Results (DRAMSys Simulation - 100k Requests):
+Empirical Results (DRAMSys Simulation - Pending 32):
 - FIFO Utilization: 32.23% (Bandwidth: 16.48 GB/s)
 - FR-FCFS Utilization: 50.87% (Bandwidth: 26.00 GB/s)
 
-Comparison with Short Run (1000 Requests):
-- 1k Requests: FIFO 32.22%, FR-FCFS 50.83%
-- 100k Requests: FIFO 32.23%, FR-FCFS 50.87%
-- The results are virtually identical (difference < 0.1%).
-- This confirms that the simulation reaches steady-state very quickly and the performance characteristics (thrashing vs reordering) are consistent over long durations.
+Comparison with Previous Run (Pending 8):
+- Pending 8: FIFO 32.22%, FR-FCFS 50.83%
+- Pending 32: FIFO 32.23%, FR-FCFS 50.87%
+- Impact: Negligible.
 
 Analysis:
-- The system is in a stable state of saturation.
-- FIFO: The controller is continuously servicing row misses. The pattern of 4 masters interleaving access to the same bank but different rows is perfectly periodic. The utilization is capped by the ratio of (Burst Transfer Time) / (Row Cycle Time + Burst Transfer Time).
-- FR-FCFS: The scheduler is continuously finding batches of ~8 requests per master (limited by buffer size and arrival rate). The utilization is capped by the amortized overhead of opening a row for 8 bursts.
+Why did increasing the max pending requests (per master) from 8 to 32 not improve FR-FCFS performance?
+
+1. Controller Buffer Bottleneck:
+   - The memory controller (`mcconfig`) has a `RequestBufferSize` of 32.
+   - Even though the masters *can* now issue up to 32 requests each (total 128 potential outstanding), the controller's input buffer blocks any new requests once it holds 32 transactions.
+   - Therefore, the scheduler never sees more than 32 requests at a time, regardless of the master's ability to issue more.
+   - With 4 masters, the buffer is likely filled with an even mix (approx 8 requests per master) due to the round-robin arbitration at the input.
+   - As a result, the "scheduling window" seen by FR-FCFS remains effectively the same size (~32 requests total), leading to the same batching efficiency.
+
+2. Batching Saturation:
+   - Even if the window was larger, the batch size for a single row might be limited by other factors (e.g., refresh intervals or simply the arrival pattern).
+   - However, the primary limiter here is clearly the `RequestBufferSize` in the controller configuration matching the previous "effective" limit.
 
 Conclusion:
-Running for a longer duration (100x longer) confirmed the initial findings. The FIFO scheduler yields ~32% efficiency due to severe row conflicts, while FR-FCFS improves this to ~51% by effective reordering. Increasing the simulation length simply produced more of the same behavior, verifying the robustness of the initial short-run analysis.
+Increasing the master's pending limit to 32 had no effect because the memory controller's shared request buffer (size 32) became the hard limit. To see a benefit from a deeper pending queue, the controller's `RequestBufferSize` would also need to be increased to accommodate the larger flood of requests (e.g., to 128).
