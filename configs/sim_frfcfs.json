@@ -17,7 +17,7 @@
             "Scheduler": "FrFcfs",
             "PagePolicy": "Open",
             "SchedulerBuffer": "Bankwise",
-            "RequestBufferSize": 128,
+            "RequestBufferSize": 512,
             "CmdMux": "Oldest",
             "RespQueue": "Fifo",
             "RefreshPolicy": "Rankwise",
