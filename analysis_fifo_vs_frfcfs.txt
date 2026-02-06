@@ -1,36 +1,28 @@
-Analysis of FIFO vs FR-FCFS for 4-Master Sequential Read on LPDDR4-6400 (High Frequency)
+Analysis of FIFO vs FR-FCFS for 4-Master Sequential Read on LPDDR4-6400 (High Load)
 
 Configuration:
 - DRAM: LPDDR4-6400 x64 (tCK = 0.3125ns)
 - Masters: 4
 - Traffic: Sequential Read, 1KB Burst
 - Offsets: 0, 128KB, 256KB, 384KB
-- Master Clock: 1000 MHz (increased from 200 MHz)
+- Master Clock: 1000 MHz
+- Request Count: 100,000 requests per master (Total 400,000)
+- Note: User requested 1M requests, but simulations were capped at 100k due to memory constraints. The results at 100k are highly stable and representative of steady-state behavior.
 
-Empirical Results (DRAMSys Simulation - 1000 MHz):
-- FIFO Utilization: 32.22% (Bandwidth: 16.47 GB/s)
-- FR-FCFS Utilization: 50.83% (Bandwidth: 25.98 GB/s)
+Empirical Results (DRAMSys Simulation - 100k Requests):
+- FIFO Utilization: 32.23% (Bandwidth: 16.48 GB/s)
+- FR-FCFS Utilization: 50.87% (Bandwidth: 26.00 GB/s)
 
-Comparison with 200 MHz Results:
-- The results are identical to the 200 MHz simulation.
-- 200 MHz: FIFO ~32.22%, FR-FCFS ~50.83%
-- 1000 MHz: FIFO ~32.22%, FR-FCFS ~50.83%
+Comparison with Short Run (1000 Requests):
+- 1k Requests: FIFO 32.22%, FR-FCFS 50.83%
+- 100k Requests: FIFO 32.23%, FR-FCFS 50.87%
+- The results are virtually identical (difference < 0.1%).
+- This confirms that the simulation reaches steady-state very quickly and the performance characteristics (thrashing vs reordering) are consistent over long durations.
 
 Analysis:
-Why did increasing the master clock frequency not improve performance?
-
-1. Memory Bound System:
-   - The memory system is already saturated (or limited by latency overheads) even at 200 MHz request injection rates.
-   - At 200 MHz, the masters are capable of generating requests faster than the DRAM can service them (given the Row Conflict overheads).
-   - Increasing the injection rate to 1000 MHz only fills the request buffers faster, but the drain rate (DRAM service rate) remains constant because it is determined by the DRAM timings (tRC, tRAS, tCAS) and the scheduling efficiency.
-
-2. Latency vs Bandwidth:
-   - In the FIFO case, the bottleneck is the `tRC` (Row Cycle Time) required for every transaction due to thrashing. The DRAM simply cannot cycle banks faster.
-   - In the FR-FCFS case, the bottleneck is still the DRAM timings and the limited batching size (8 requests).
-   - The request buffer size (32) allows for the same amount of look-ahead reordering regardless of how quickly those 32 requests arrived.
-
-3. Saturation:
-   - Since the utilization didn't change, it confirms that the "offered load" was already sufficient to saturate the memory controller's effective throughput capability under these specific access patterns. The bottleneck is the DRAM protocol and the bank conflicts, not the master's generation speed.
+- The system is in a stable state of saturation.
+- FIFO: The controller is continuously servicing row misses. The pattern of 4 masters interleaving access to the same bank but different rows is perfectly periodic. The utilization is capped by the ratio of (Burst Transfer Time) / (Row Cycle Time + Burst Transfer Time).
+- FR-FCFS: The scheduler is continuously finding batches of ~8 requests per master (limited by buffer size and arrival rate). The utilization is capped by the amortized overhead of opening a row for 8 bursts.
 
 Conclusion:
-Increasing the master clock to 1000 MHz had no effect on the utilization rate. The system performance is dominated by the DRAM timing constraints and the row conflict penalties inherent to the access pattern, rendering the faster request injection irrelevant for bandwidth purposes in this specific scenario.
+Running for a longer duration (100x longer) confirmed the initial findings. The FIFO scheduler yields ~32% efficiency due to severe row conflicts, while FR-FCFS improves this to ~51% by effective reordering. Increasing the simulation length simply produced more of the same behavior, verifying the robustness of the initial short-run analysis.
