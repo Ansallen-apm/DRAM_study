@@ -58,8 +58,8 @@ Used Address Mapping:
 ===========================================================================
 
 Info: /OSCI/SystemC: Simulation stopped by user.
-DRAMSys.controller0       Total Time:     248674744 ps
-DRAMSys.controller0       AVG BW:         131.77 Gb/s | 16.47  GB/s | 32.22  %
-DRAMSys.controller0       AVG BW\IDLE:    131.77 Gb/s | 16.47  GB/s | 32.22  %
+DRAMSys.controller0       Total Time:     157647458 ps
+DRAMSys.controller0       AVG BW:         207.86 Gb/s | 25.98  GB/s | 50.83  %
+DRAMSys.controller0       AVG BW\IDLE:    207.86 Gb/s | 25.98  GB/s | 50.83  %
 DRAMSys.controller0       MAX BW:         408.95 Gb/s | 51.12  GB/s | 100.00 %
-Simulation took 0.219737 seconds.
+Simulation took 0.164893 seconds.
