@@ -1,4 +1,4 @@
-Analysis of FIFO vs FR-FCFS for 4-Master Sequential Read on LPDDR4-6400 (Larger Buffer)
+Analysis of FIFO vs FR-FCFS for 4-Master Sequential Read on LPDDR4-6400 (Maximum Buffer)
 
 Configuration:
 - DRAM: LPDDR4-6400 x64 (tCK = 0.3125ns)
@@ -8,31 +8,34 @@ Configuration:
 - Master Clock: 1000 MHz
 - Request Count: 10,000 requests per master
 - Max Pending Requests (per master): 32
-- Controller Request Buffer Size: 64 (increased from 32)
+- Controller Request Buffer Size: 128 (increased from 64)
 
-Empirical Results (DRAMSys Simulation - Buffer 64):
-- FIFO Utilization: 37.38% (Bandwidth: 19.11 GB/s)
-- FR-FCFS Utilization: 69.73% (Bandwidth: 35.65 GB/s)
+Empirical Results (DRAMSys Simulation - Buffer 128):
+- FIFO Utilization: 55.34% (Bandwidth: 28.29 GB/s)
+- FR-FCFS Utilization: 82.07% (Bandwidth: 41.95 GB/s)
 
-Comparison with Previous Run (Buffer 32):
-- Buffer 32: FIFO 32.23%, FR-FCFS 50.87%
-- Buffer 64: FIFO 37.38%, FR-FCFS 69.73%
-- Improvement: FR-FCFS improved by ~19 percentage points (+37% relative).
+Comparison across Buffer Sizes:
+- Buffer 32: FIFO 32.2%, FR-FCFS 50.9%
+- Buffer 64: FIFO 37.4%, FR-FCFS 69.7%
+- Buffer 128: FIFO 55.3%, FR-FCFS 82.1%
 
 Analysis:
 
-1. FR-FCFS Performance (70%):
-   - Doubling the controller's request buffer size from 32 to 64 allowed the scheduler to see a much larger window of requests.
-   - With 4 masters each capable of having 32 requests pending, a shared buffer of 32 was a severe bottleneck (averaging only 8 requests per master visible).
-   - With a buffer of 64, the scheduler can see ~16 requests per master on average.
-   - This larger window allows the FR-FCFS algorithm to batch more requests together for the same row before switching.
-   - Instead of switching after 8 requests (Row Hit Streak = 8), it can now likely switch after 16 or more.
-   - Amortizing the Row Activation overhead over 16 requests essentially halves the "per-byte" overhead penalty, pushing efficiency from ~50% to ~70%.
+1. FR-FCFS Performance (82%):
+   - With a buffer size of 128, the controller can absorb the theoretical maximum number of pending requests from the masters (4 masters * 32 pending = 128).
+   - The bottleneck has completely shifted away from the controller's input capacity.
+   - The scheduler now has complete visibility of all available work. It can form very long "Row Hit" sequences, essentially processing huge chunks of data for one master (one row) before switching.
+   - Utilization is now likely limited only by DRAM Refresh cycles (tRFC) and the unavoidable minimum overhead of switching banks/rows occasionally. 82% is extremely high efficiency for a random-access style workload (even if sequential per master).
 
-2. FIFO Performance (37%):
-   - FIFO also saw a modest improvement (from 32% to 37%).
-   - While FIFO cannot reorder to fix the row conflicts, a deeper buffer allows the controller to absorb more requests from the masters.
-   - This might allow for better pipelining of the command stream (e.g., issuing a Precharge for Bank 0 immediately after the last Read, while the bus is still busy with data), or simply masking some of the arbitration latency.
+2. FIFO Performance (55%):
+   - FIFO performance improved significantly from 37% to 55%.
+   - Why? FIFO cannot reorder, so it still thrashes rows.
+   - However, a very deep buffer acts as a perfect pipeline. It ensures that the memory command generator (BankMachine) never waits for a request to arrive from the arbiter.
+   - It also allows the controller to issue Precharge commands for the *next* request immediately while the data bus is still busy with the *current* request's data bursts.
+   - This "Hiding of Precharge/Activate" behind Data Bus utilization is maximized when there is always a deep queue of known future commands. The latency of arbitration and flow control is completely masked.
 
 Conclusion:
-The size of the Memory Controller's request buffer is a critical performance parameter for FR-FCFS schedulers in multi-master systems. By increasing the buffer size to 64, we unlocked the potential of the scheduler to find longer sequences of Row Hits, resulting in a dramatic increase in bandwidth utilization (reaching ~70%). This confirms that the previous configuration was bottlenecked by the shared buffer capacity.
+Increasing the Request Buffer Size to match the total pending capacity of the system (128) maximized the performance of both schedulers.
+- FR-FCFS benefited most, reaching ~82% utilization by maximizing row locality (batching).
+- FIFO benefited from ideal pipelining, masking protocol latencies, reaching ~55%.
+- This demonstrates that for high-performance memory subsystems, the controller's internal buffering capacity is just as critical as the scheduling algorithm itself.
