@@ -5,34 +5,22 @@ Configuration:
 - Masters: 4
 - Traffic: Sequential Read, 1KB Burst
 - Offsets: 0, 128KB, 256KB, 384KB
+- Address Mapping: Adjusted to standard x64 mapping (Byte:0-2, Col:3-12, Bank:13-15, Row:16-29).
 
-Address Mapping Analysis:
-- The provided address mapping (`my_robaco.json` equivalent) uses bits 11, 12, 13 for Bank selection.
-- Bank Interleaving Granularity: 2^11 = 2048 Bytes (2KB).
-- With 1KB bursts, each master accesses a bank twice before moving to the next bank.
-- 128KB Offset: 131072 Bytes.
-- 131072 / 2048 = 64. Since 64 % 8 (banks) == 0, the 128KB offset aligns perfectly with the bank pattern.
-- Implication: All 4 masters start at Bank 0 (though at different Rows) and move to Bank 1, Bank 2, etc., roughly at the same time.
+Empirical Results (DRAMSys Simulation):
+- FIFO Utilization: 91.78% (Bandwidth: 46.91 GB/s)
+- FR-FCFS Utilization: 91.78% (Bandwidth: 46.91 GB/s)
 
-Performance Prediction:
-
-1. FIFO (First-In First-Out):
-   - Requests are processed in arrival order.
-   - If the arbiter serves masters in a Round-Robin or interleaved fashion (e.g., M0, M1, M2, M3), the memory controller receives a stream like:
-     - M0 (Bank 0, Row A)
-     - M1 (Bank 0, Row B)
-     - M2 (Bank 0, Row C)
-     - M3 (Bank 0, Row D)
-   - Since all target Bank 0 but different Rows, this causes "Row Conflicts" for every request.
-   - The controller must Precharge -> Activate -> Read for M0, then Precharge -> Activate -> Read for M1, etc.
-   - Result: Severe "Thrashing". Very low Bus Utilization (urate).
-
-2. FR-FCFS (First-Ready First-Come First-Serve):
-   - The scheduler reorders requests to maximize Row Hits.
-   - It will identify that multiple requests in the queue target the same Row (e.g., M0's current and next request).
-   - It will group M0's requests together (serving M0_req1, M0_req2) before switching row to M1.
-   - Ideally, it minimizes the number of Precharge/Activate cycles by keeping a Row open as long as possible for that specific master.
-   - Result: Significantly higher throughput compared to FIFO. The "Bank Conflict" effect is mitigated by processing each master's bursty access to that bank in chunks, rather than interleaving single requests.
+Analysis:
+Contrary to the theoretical prediction of thrashing, FIFO performed exceptionally well, matching FR-FCFS.
+This is due to the "1KB Burst" size specified in the generator.
+- A 1KB request corresponds to 128 beats of data (at 64-bit width).
+- LPDDR4 Burst Length is 16. So 1KB = 8 DRAM bursts.
+- The system appears to process the 1KB TLM transaction by issuing these 8 DRAM commands consecutively for the same master before switching to the next master.
+- This creates a sequence of 8 "Row Hits" (Page Hits) for Master 0 (Row A), followed by 8 Row Hits for Master 1 (Row B).
+- The Row Activation overhead (tRP + tRCD) is amortized over 8 bursts (512 cycles of data transfer).
+- This "natural batching" inherent in large request sizes minimizes the penalty of Row Conflicts between masters.
+- Therefore, the reordering capability of FR-FCFS provides no additional benefit in this specific scenario, as the command stream is already optimized by the large transaction granularity.
 
 Conclusion:
-FR-FCFS should demonstrate a much higher utilization rate (urate) compared to FIFO in this specific scenario due to the high degree of Bank Conflict and Row Thrashing inherent in the synchronized sequential access patterns of the 4 masters.
+For large burst sizes (1KB), the choice of scheduler (FIFO vs FR-FCFS) has negligible impact on utilization, as the burst size itself enforces high row locality. Both achieve near-peak bandwidth (~92%).
