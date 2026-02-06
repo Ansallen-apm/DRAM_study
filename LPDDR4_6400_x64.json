@@ -1,0 +1,39 @@
+{
+    "memspec": {
+        "memarchitecturespec": {
+            "width": 64,
+            "banks": 8,
+            "bankgroups": 1,
+            "columns": 1024,
+            "rows": 16384,
+            "dataRate": "Double",
+            "burstLength": 16
+        },
+        "memtimingspec": {
+            "tCK": 0.3125,
+            "tRC": 60.0,
+            "tRAS": 42.0,
+            "tRCD": 18.0,
+            "tRP": 18.0,
+            "tRFC": 280.0,
+            "tRRD": 10.0,
+            "tFAW": 40.0,
+            "tWTR": 10.0,
+            "tWR": 30.0,
+            "tRTP": 10.0,
+            "tCCD": 8,
+            "tCAS": 22.0,
+            "tCWD": 20.0,
+            "tREFI": 3900.0
+        },
+        "mempowerspec": {
+            "vdd": 1.1,
+            "idd0": 10.0,
+            "idd2n": 5.0,
+            "idd3n": 8.0,
+            "idd4r": 20.0,
+            "idd4w": 20.0,
+            "idd5": 30.0
+        }
+    }
+}
