@@ -1,40 +1,36 @@
-Analysis of FIFO vs FR-FCFS for 4-Master Sequential Read on LPDDR4-6400
+Analysis of FIFO vs FR-FCFS for 4-Master Sequential Read on LPDDR4-6400 (High Frequency)
 
 Configuration:
 - DRAM: LPDDR4-6400 x64 (tCK = 0.3125ns)
 - Masters: 4
 - Traffic: Sequential Read, 1KB Burst
 - Offsets: 0, 128KB, 256KB, 384KB
-- Address Mapping: Adjusted to standard x64 mapping (Byte:0-2, Col:3-12, Bank:13-15, Row:16-29).
-- Note: Masters are configured with `minAddress` to ensure they access distinct address ranges.
-  - Master 0: Bank 0, Row 0
-  - Master 1: Bank 0, Row 2 (approx)
-  - Master 2: Bank 0, Row 4 (approx)
-  - Master 3: Bank 0, Row 6 (approx)
-  - All masters compete for Bank 0 but target different Rows.
+- Master Clock: 1000 MHz (increased from 200 MHz)
 
-Empirical Results (DRAMSys Simulation - Verified):
+Empirical Results (DRAMSys Simulation - 1000 MHz):
 - FIFO Utilization: 32.22% (Bandwidth: 16.47 GB/s)
 - FR-FCFS Utilization: 50.83% (Bandwidth: 25.98 GB/s)
 
+Comparison with 200 MHz Results:
+- The results are identical to the 200 MHz simulation.
+- 200 MHz: FIFO ~32.22%, FR-FCFS ~50.83%
+- 1000 MHz: FIFO ~32.22%, FR-FCFS ~50.83%
+
 Analysis:
+Why did increasing the master clock frequency not improve performance?
 
-1. FIFO Performance (32%):
-   - The FIFO scheduler processes requests in arrival order.
-   - The Arbiter interleaves requests from the 4 masters (M0, M1, M2, M3, ...).
-   - Since all masters target the same Bank (Bank 0) but different Rows, every switch between masters causes a Row Conflict.
-   - Sequence: Act B0,R0 -> Read 1KB -> Pre B0 -> Act B0,R2 -> Read 1KB -> Pre B0 ...
-   - Overhead: tRP (Precharge) + tRCD (Activate) + tCAS + Burst Time.
-   - With 1KB bursts (64 cycles on bus) and high overhead (~116+ cycles), the efficiency drops to ~32-35%.
-   - The "thrashing" behavior is clearly observed.
+1. Memory Bound System:
+   - The memory system is already saturated (or limited by latency overheads) even at 200 MHz request injection rates.
+   - At 200 MHz, the masters are capable of generating requests faster than the DRAM can service them (given the Row Conflict overheads).
+   - Increasing the injection rate to 1000 MHz only fills the request buffers faster, but the drain rate (DRAM service rate) remains constant because it is determined by the DRAM timings (tRC, tRAS, tCAS) and the scheduling efficiency.
 
-2. FR-FCFS Performance (51%):
-   - The FR-FCFS scheduler reorders requests to prioritize Row Hits (requests targeting the currently open row).
-   - It scans the request buffer (size 32) and groups requests from the same master (since they target the same row).
-   - Instead of switching after every 1KB request, it batches multiple requests (likely limited by `maxPendingReadRequests` = 8).
-   - Sequence: Act B0,R0 -> Read 8KB (8x1KB) -> Pre B0 -> Act B0,R2 -> Read 8KB ...
-   - By amortizing the Row Activation overhead over 8 requests instead of 1, the utilization improves significantly to ~51%.
-   - Ideally, with infinite buffer depth, it could reach near 100%, but it is limited here by the number of pending requests available in the buffer to be scheduled.
+2. Latency vs Bandwidth:
+   - In the FIFO case, the bottleneck is the `tRC` (Row Cycle Time) required for every transaction due to thrashing. The DRAM simply cannot cycle banks faster.
+   - In the FR-FCFS case, the bottleneck is still the DRAM timings and the limited batching size (8 requests).
+   - The request buffer size (32) allows for the same amount of look-ahead reordering regardless of how quickly those 32 requests arrived.
+
+3. Saturation:
+   - Since the utilization didn't change, it confirms that the "offered load" was already sufficient to saturate the memory controller's effective throughput capability under these specific access patterns. The bottleneck is the DRAM protocol and the bank conflicts, not the master's generation speed.
 
 Conclusion:
-In a scenario with high Bank Contention (multiple masters accessing different rows of the same bank), FR-FCFS provides a substantial performance benefit (+57% throughput improvement) over FIFO by reordering requests to minimize costly Row Activate/Precharge cycles.
+Increasing the master clock to 1000 MHz had no effect on the utilization rate. The system performance is dominated by the DRAM timing constraints and the row conflict penalties inherent to the access pattern, rendering the faster request injection irrelevant for bandwidth purposes in this specific scenario.

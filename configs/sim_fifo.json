@@ -117,7 +117,7 @@
         "tracesetup": [
             {
                 "type": "generator",
-                "clkMhz": 200,
+                "clkMhz": 1000,
                 "name": "master0",
                 "numRequests": 1000,
                 "rwRatio": 1.0,
@@ -130,7 +130,7 @@
             },
             {
                 "type": "generator",
-                "clkMhz": 200,
+                "clkMhz": 1000,
                 "name": "master1",
                 "numRequests": 1000,
                 "rwRatio": 1.0,
@@ -143,7 +143,7 @@
             },
             {
                 "type": "generator",
-                "clkMhz": 200,
+                "clkMhz": 1000,
                 "name": "master2",
                 "numRequests": 1000,
                 "rwRatio": 1.0,
@@ -156,7 +156,7 @@
             },
             {
                 "type": "generator",
-                "clkMhz": 200,
+                "clkMhz": 1000,
                 "name": "master3",
                 "numRequests": 1000,
                 "rwRatio": 1.0,
