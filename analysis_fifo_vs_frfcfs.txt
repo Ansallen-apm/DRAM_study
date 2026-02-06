@@ -13,7 +13,7 @@ Configuration:
   - Master 3: Bank 0, Row 6 (approx)
   - All masters compete for Bank 0 but target different Rows.
 
-Empirical Results (DRAMSys Simulation):
+Empirical Results (DRAMSys Simulation - Verified):
 - FIFO Utilization: 32.22% (Bandwidth: 16.47 GB/s)
 - FR-FCFS Utilization: 50.83% (Bandwidth: 25.98 GB/s)
 
