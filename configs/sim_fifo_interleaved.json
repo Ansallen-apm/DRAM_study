@@ -17,7 +17,7 @@
             "Scheduler": "Fifo",
             "PagePolicy": "Open",
             "SchedulerBuffer": "Bankwise",
-            "RequestBufferSize": 256,
+            "RequestBufferSize": 64,
             "CmdMux": "Oldest",
             "RespQueue": "Fifo",
             "RefreshPolicy": "Rankwise",
@@ -119,7 +119,7 @@
                 "type": "player",
                 "name": "interleaved.stl",
                 "clkMhz": 1000,
-                "dataLength": 1024
+                "dataLength": 256
             }
         ]
     }
