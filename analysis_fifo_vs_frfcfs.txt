@@ -1,4 +1,4 @@
-Analysis of FIFO vs FR-FCFS for 4-Master Sequential Read on LPDDR4-6400 (Oversized Buffer)
+Analysis of FIFO vs FR-FCFS for 4-Master Sequential Read on LPDDR4-6400 (Buffer Scaling)
 
 Configuration:
 - DRAM: LPDDR4-6400 x64 (tCK = 0.3125ns)
@@ -8,36 +8,41 @@ Configuration:
 - Master Clock: 1000 MHz
 - Request Count: 10,000 requests per master
 - Max Pending Requests (per master): 32
-- Controller Request Buffer Size: 512 (increased from 128)
+- Total Potential Outstanding Requests: 128
 
-Empirical Results (DRAMSys Simulation - Buffer 512):
-- FIFO Utilization: 91.39% (Bandwidth: 46.72 GB/s)
-- FR-FCFS Utilization: 91.63% (Bandwidth: 46.84 GB/s)
+Empirical Results (Buffer Size Sweep):
 
-Comparison across Buffer Sizes:
-- Buffer 32: FIFO 32.2%, FR-FCFS 50.9%
-- Buffer 128: FIFO 55.3%, FR-FCFS 82.1%
-- Buffer 512: FIFO 91.4%, FR-FCFS 91.6%
+1. Buffer Size = 32 (Shared Buffer Bottleneck)
+   - FIFO: ~32%
+   - FR-FCFS: ~51%
+   - Analysis: Controller buffer forces strict interleaving and limits scheduler look-ahead. FR-FCFS provides a moderate gain.
 
-Analysis:
+2. Buffer Size = 64 (Intermediate)
+   - FIFO: ~37%
+   - FR-FCFS: ~70%
+   - Analysis: Larger look-ahead allows FR-FCFS to find significant row-hit batches.
 
-1. Saturation and "Ideal" Performance:
-   - With a buffer size of 512, the controller buffer is significantly larger than the maximum number of outstanding requests the masters can issue (4 * 32 = 128).
-   - The system is effectively running with an "infinite" buffer relative to the offered load.
-   - At this scale, both schedulers achieve near-peak bandwidth (~91%).
+3. Buffer Size = 128 (Matches Total Pending)
+   - FIFO: 55.34%
+   - FR-FCFS: 82.07%
+   - Analysis:
+     - FIFO benefits from pipelining/hiding latencies (buffer full -> MC busy).
+     - FR-FCFS achieves high efficiency by seeing all pending work.
 
-2. The Unexpected Improvement of FIFO (to 91%):
-   - Why did FIFO improve from 55% to 91% just by increasing the buffer beyond the max pending count (128)?
-   - Hypotheses:
-     a) **Absence of Backpressure:** With Buffer=128 (exactly matching max pending), if the controller holds requests, the masters might stall slightly or synchronize in a way that enforces the "Round-Robin" arrival pattern (M0, M1, M2, M3...) at the arbiter input. This forces the worst-case row thrashing.
-     b) **Batch Arrival:** With Buffer=512, the buffer never applies backpressure. The masters dump their requests as fast as possible (1000 MHz). If the simulation executes the masters in a way that batches their output (e.g., M0 dumps 32 reqs, then M1 dumps 32 reqs), the FIFO arbiter receives them in blocks: [M0...0, M1...1].
-     - If the arbiter receives blocks, FIFO schedules blocks.
-     - Block scheduling = Row Hits = High Utilization.
-     - This suggests that with a non-blocking buffer, the "natural" arrival pattern from the 4 masters in the simulation environment is actually *not* perfectly interleaved, but rather somewhat batched, likely due to the absence of flow-control interactions.
+4. Buffer Size = 256 (Oversized - 2x Pending)
+   - FIFO: 90.56%
+   - FR-FCFS: 90.89%
+   - Analysis:
+     - Critical Tipping Point for FIFO.
+     - With a buffer capacity (256) significantly larger than the total load (128), the controller accepts ALL requests immediately.
+     - The "natural arrival" of requests in the simulation environment (likely batched per-master due to the absence of backpressure) allows FIFO to process large sequential chunks.
+     - Performance converges to the theoretical maximum (~91%).
 
-3. FR-FCFS Convergence:
-   - FR-FCFS also reached ~91%, which is the theoretical maximum (accounting for Refresh and unavoidable overheads).
-   - At this point, the DRAM bus is fully saturated with useful data transfers.
+5. Buffer Size = 512 (Oversized - 4x Pending)
+   - FIFO: 91.39%
+   - FR-FCFS: 91.63%
+   - Analysis: Marginal gain over 256. Confirms saturation at ~91%.
 
 Conclusion:
-Increasing the Request Buffer Size to 512 (4x the max pending load) eliminated all flow-control backpressure. This appears to have altered the arrival pattern at the arbiter (or allowed the arbiter to accept "bursts" of requests from single masters without interruption), inadvertently optimizing the schedule even for FIFO. Both algorithms effectively achieve perfect scheduling in this unconstrained scenario.
+- **FR-FCFS** scales smoothly with buffer size (51% -> 70% -> 82% -> 91%), demonstrating its ability to optimize increasingly larger pools of random/interleaved requests.
+- **FIFO** exhibits a "step function" behavior. It performs poorly (~32-55%) when the buffer size forces flow control interactions that interleave requests. However, once the buffer is large enough to absorb *all* outstanding traffic (Buffer >= 256 in this case), the lack of backpressure allows the traffic generation pattern (likely batched bursts) to dominate, resulting in near-perfect (~91%) "accidental" optimization.
