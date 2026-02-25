@@ -17,10 +17,10 @@
             "Scheduler": "FrFcfs",
             "PagePolicy": "Open",
             "SchedulerBuffer": "Bankwise",
-            "RequestBufferSize": 64,
+            "RequestBufferSize": 256,
             "CmdMux": "Oldest",
             "RespQueue": "Fifo",
-            "RefreshPolicy": "Rankwise",
+            "RefreshPolicy": "NoRefresh",
             "PowerDownPolicy": "NoPowerDown",
             "Arbiter": "Simple"
         },
