@@ -1,41 +1,48 @@
-Analysis of FIFO vs FR-FCFS with Small Bursts (256B) and Per-Bank Refresh
+Analysis of FIFO vs FR-FCFS with Small Bursts (256B) and No Refresh
 
 Configuration:
 - DRAM: LPDDR4-6400 x64
 - Traffic: Single STL Trace Player (Strict Interleaving)
-- Burst Size: 256 bytes (Reduced from 1KB)
-- Refresh Policy: Per Bank
+- Burst Size: 256 bytes
+- Refresh Policy: NoRefresh (Ideal baseline)
 - Trace Pattern: 0, 128KB, 256KB, 384KB, 256B, 128KB+256B...
 
-Results (Utilization vs Buffer Size):
+Results (Utilization vs Buffer Size) - No Refresh:
 
 | Buffer Size | FIFO Utilization | FR-FCFS Utilization |
 | :--- | :--- | :--- |
-| 64 | 10.13% | 69.18% |
-| 128 | 15.12% | 82.07% |
-| 256 | 45.25% | 90.84% |
+| 64 | 10.97% | 75.25% |
+| 128 | 16.39% | 89.08% |
+| 256 | 49.71% | 99.16% |
+
+Comparison with Per-Bank Refresh:
+
+| Buffer Size | FIFO (NoRef) | FIFO (PerBank) | FR-FCFS (NoRef) | FR-FCFS (PerBank) |
+| :--- | :--- | :--- | :--- | :--- |
+| 64 | 10.97% | 10.13% | 75.25% | 69.18% |
+| 128 | 16.39% | 15.12% | 89.08% | 82.07% |
+| 256 | 49.71% | 45.25% | 99.16% | 90.84% |
 
 Detailed Analysis:
 
-1. FIFO Sensitivity to Burst Size:
-   - With 1KB bursts (previous run), FIFO achieved ~86% utilization even with interleaving because the large data transfer (64 cycles) amortized the row conflict overhead.
-   - With 256B bursts, data transfer is only 16 cycles (2ns).
-   - The Row Cycle overhead (tRC approx 50-60ns) is now DOMINANT.
-   - Efficiency drops catastrophically to ~10-15% with small buffers.
-   - Even with Buffer 256 (where pipelining is maximized), FIFO only reaches ~45%.
-   - This clearly demonstrates that **FIFO performance is highly dependent on burst length** in high-contention scenarios. Small bursts expose the true cost of thrashing.
+1. Impact of Refresh:
+   - Disabling refresh improved performance across the board, as expected.
+   - For **FR-FCFS (Buffer 256)**, utilization jumped from 90.8% to **99.16%**. This indicates that with ideal scheduling and no maintenance overhead, the system is nearly perfectly saturated (bandwidth limited only by minimal turnaround times). The ~8-9% difference represents the cost of Per-Bank Refresh and its associated bank unavailability.
+   - For **FIFO**, the improvement was proportional but small in absolute terms (e.g., 45% -> 49% at Buffer 256). The thrashing overhead dominates so heavily that removing refresh only reclaims a small fraction of bus time.
 
-2. FR-FCFS Resilience:
-   - FR-FCFS maintains high performance (69% - 91%) even with small bursts.
-   - It effectively reorders the request stream to group accesses to the same row.
-   - Buffer 64: 69% (Good, but limited look-ahead).
-   - Buffer 128: 82% (Excellent).
-   - Buffer 256: 91% (Near optimal).
-   - The scheduler successfully hides the row conflicts by processing batches, proving its value is *critical* for small-transaction workloads.
+2. FIFO Scaling (No Refresh):
+   - Even without refresh, FIFO performance remains poor (11% - 16%) for small buffers.
+   - The jump to ~50% at Buffer 256 confirms the "pipelining/batching" effect seen earlier. When the buffer is large enough to absorb the input stream without backpressure, the controller can process the request stream more efficiently (likely due to simulation artifact batching), but it still hits a hard ceiling (50%) far below FR-FCFS (99%) because it cannot reorder to fix the row conflicts.
 
-3. Buffer Size Impact:
-   - **FIFO:** Improvements (10% -> 15% -> 45%) are due to pipelining and hiding some latency behind bus transfers, but it never overcomes the fundamental thrashing limit.
-   - **FR-FCFS:** Improvements (69% -> 82% -> 91%) are due to finding larger batches of row hits. With Buffer 256, it can likely see enough requests to fully saturate the bank interleave capabilities or form long row-hit sequences.
+3. FR-FCFS Scaling (No Refresh):
+   - FR-FCFS scales beautifully.
+   - Buffer 64: 75% (Limited visibility).
+   - Buffer 128: 89% (High visibility).
+   - Buffer 256: 99% (Perfect visibility).
+   - This proves that the FR-FCFS algorithm is highly effective at extracting near-theoretical maximum bandwidth from the DRAM, provided the request buffer is large enough to find the row-hit optimization opportunities.
 
 Conclusion:
-Reducing the request size to 256 bytes dramatically widened the performance gap. FIFO collapses to <15% efficiency under normal buffering (64/128), while FR-FCFS sustains >80%. This confirms that for fine-grained random/interleaved traffic, an intelligent scheduler (FR-FCFS) is indispensable.
+Disabling refresh reveals the true "Scheduling Efficiency" limit.
+- **FR-FCFS** is capable of **99% efficiency** in this scenario (interleaved, small bursts) if the buffer is large enough (256).
+- **FIFO** is structurally limited to **~50% efficiency** even under ideal buffering/no-refresh conditions due to its inability to mitigate row conflicts.
+- The "cost of refresh" in this high-load scenario appears to be approximately **8-10%** of total bandwidth.
