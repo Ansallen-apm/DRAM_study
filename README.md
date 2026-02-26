@@ -94,7 +94,35 @@ DRAMSys/build/bin/DRAMSys configs/sim_frfcfs_interleaved.json
 *   **Refresh Policy**: 修改 `.json` 檔案中的 `RefreshPolicy` (例如 "PerBank", "NoRefresh")。
 *   **Data Length**: 需同時修改 `generate_trace.py` 中的 `burst_size` 以及 `.json` 檔案中的 `dataLength` 以保持一致。
 
+## AXI Trace Benchmark Results
+
+使用 `run_all_traces.py` 腳本自動執行多組 AXI Trace 的模擬結果。這些 Trace 涵蓋了從 128B 到 512B 的不同存取大小，以及隨機 (Random) 與循序 (Sequential) 存取模式。所有測試均使用 **FR-FCFS** 排程演算法與 **1GB** (Mask: 0x3FFFFFFF) 記憶體空間。
+
+| Trace Name                     | Bandwidth       | Utilization (%) |
+| :---                           | :---            | :---            |
+| rand_read_128B.trace           | 11.48  GB/s     | 22.47           |
+| rand_read_256B.trace           | 18.95  GB/s     | 37.06           |
+| rand_read_512B.trace           | 42.92  GB/s     | 83.97           |
+| rand_write_128B.trace          | 10.45  GB/s     | 20.45           |
+| rand_write_256B.trace          | 16.97  GB/s     | 33.20           |
+| rand_write_512B.trace          | 35.47  GB/s     | 69.38           |
+| sample.trace                   | 5.91   GB/s     | 11.55           |
+| seq_read_128B.trace            | 44.26  GB/s     | 86.58           |
+| seq_read_256B.trace            | 47.41  GB/s     | 92.75           |
+| seq_read_512B.trace            | 48.96  GB/s     | 95.78           |
+| seq_write_128B.trace           | 45.79  GB/s     | 89.59           |
+| seq_write_256B.trace           | 48.28  GB/s     | 94.45           |
+| seq_write_512B.trace           | 49.42  GB/s     | 96.68           |
+
+**分析**:
+*   **Sequential Access**: FR-FCFS 在循序存取下表現極佳 (86% - 96%)，因為能夠最大化 Row Hit 並有效利用 Bank Parallelism。
+*   **Random Access**:
+    *   在小封包 (128B) 下，由於頻繁的 Row Miss 和有限的 Row Hit 機會，頻寬利用率顯著下降至 ~22%。
+    *   隨著封包大小增加 (512B)，即使是隨機存取，利用率也能提升至 ~84%，這顯示了大封包能有效攤提 Row Cycle 的開銷。
+
 ## 檔案列表
+*   `run_all_traces.py`: 自動化執行 `traces/` 目錄下所有 AXI Trace 的腳本。
+*   `axi_to_stl.py`: AXI 格式轉 DRAMSys STL 格式的轉換工具。
 *   `generate_trace.py`: 產生 STL Trace 的 Python 腳本。
 *   `configs/`: 包含模擬設定檔 (`.json`) 與 Trace 檔 (`.stl`)。
 *   `result/`: 存放模擬結果 Log (`.txt`)。
