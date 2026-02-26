@@ -1,2 +1,0 @@
-Bandwidth: 3.54 GB/s
-Utilization Rate: 55.27 %

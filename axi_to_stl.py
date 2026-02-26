@@ -1,58 +1,75 @@
 import sys
+import argparse
 
-def convert_axi_to_stl(input_file, output_file):
+def convert_axi_to_stl(input_file, output_file, addr_mask=None):
     current_time = 0
-    time_step = 10  # Arbitrary time step between requests since input has no timestamp
+    time_step = 1  # 1ns for 1000MHz
 
-    with open(input_file, 'r') as infile, open(output_file, 'w') as outfile:
-        for line in infile:
-            line = line.strip()
-            if not line:
-                continue
+    mask_int = None
+    if addr_mask:
+        try:
+            mask_int = int(addr_mask, 0)
+        except ValueError:
+            print(f"Invalid mask: {addr_mask}")
+            sys.exit(1)
 
-            parts = line.split()
-            if len(parts) < 4:
-                print(f"Skipping malformed line: {line}")
-                continue
+    try:
+        with open(input_file, 'r') as infile, open(output_file, 'w') as outfile:
+            for line in infile:
+                line = line.strip()
+                if not line:
+                    continue
 
-            rw_mode = parts[0]
-            addr_hex = parts[1]
-            buswidth_idx = int(parts[2])
-            beats_hex = parts[3]
+                parts = line.split()
+                if len(parts) < 4:
+                    continue
 
-            # 1. Parse Command
-            if rw_mode.startswith('AR'):
-                command = 'read'
-            elif rw_mode.startswith('AW'):
-                command = 'write'
-            else:
-                print(f"Unknown command {rw_mode}, defaulting to read")
-                command = 'read'
+                rw_mode = parts[0]
+                addr_hex = parts[1]
 
-            # 2. Parse Address
-            # Ensure it starts with 0x for STL
-            if not addr_hex.startswith('0x') and not addr_hex.startswith('0X'):
-                addr_str = '0x' + addr_hex
-            else:
-                addr_str = addr_hex
+                # Command
+                if rw_mode.startswith('AR'):
+                    command = 'read'
+                elif rw_mode.startswith('AW'):
+                    command = 'write'
+                else:
+                    # Skip non-read/write lines
+                    continue
 
-            # 3. Calculate Data Length
-            # Size per beat = 2 ^ buswidth_idx
-            bytes_per_beat = 1 << buswidth_idx
-            # Total beats = beats_hex (AxLEN) + 1
-            num_beats = int(beats_hex, 16) + 1
-            total_size = bytes_per_beat * num_beats
+                # Address Masking
+                try:
+                    addr_val = int(addr_hex, 16)
+                    if mask_int is not None:
+                        addr_val = addr_val & mask_int
+                    addr_str = hex(addr_val)
+                except ValueError:
+                    continue
 
-            # 4. Write STL Line
-            # Format: Timestamp (DataLength) Command Address
-            outfile.write(f"{current_time} ({total_size}) {command} {addr_str}\n")
+                # Size Calculation
+                try:
+                    buswidth_idx = int(parts[2])
+                    beats_hex = parts[3]
+                    bytes_per_beat = 1 << buswidth_idx
+                    num_beats = int(beats_hex, 16) + 1
+                    total_size = bytes_per_beat * num_beats
+                except ValueError:
+                    continue
 
-            current_time += time_step
+                # STL: timestamp (size) command address
+                # Using 1ns steps to avoid overlapping transactions at same timestamp causing issues
+                outfile.write(f"{current_time} ({total_size}) {command} {addr_str}\n")
 
-if __name__ == "__main__":
-    if len(sys.argv) < 3:
-        print("Usage: python3 axi_to_stl.py <input_axi_file> <output_stl_file>")
+                current_time += time_step
+    except FileNotFoundError:
+        print(f"File not found: {input_file}")
         sys.exit(1)
 
-    convert_axi_to_stl(sys.argv[1], sys.argv[2])
-    print(f"Converted {sys.argv[1]} to {sys.argv[2]}")
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Convert AXI trace to DRAMSys STL format.")
+    parser.add_argument("input_file", help="Input AXI trace file")
+    parser.add_argument("output_file", help="Output STL trace file")
+    parser.add_argument("--mask", help="Address mask (hex or int) to apply", default=None)
+
+    args = parser.parse_args()
+
+    convert_axi_to_stl(args.input_file, args.output_file, args.mask)
