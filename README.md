@@ -69,30 +69,39 @@ Request Buffer Size 決定了記憶體控制器的「視野」(Scheduling Window
 
 ## 如何執行模擬 (How to Run)
 
-### 1. 產生 Trace
-使用 `generate_trace.py` 產生交錯的流量檔案 (STL format)。
+### 1. 執行外部 AXI Trace 自動化測試 (Benchmark)
+專案內含多個由 `DRAM_bench` 擷取的 AXI 流量檔，可透過 Python 腳本自動轉換為 STL 格式並執行模擬：
+
+**執行全部 Trace (LPDDR4-6400 x64, 1GB):**
 ```bash
-python3 generate_trace.py
+python3 run_all_traces.py
 ```
-這會產生 `configs/interleaved.stl`。你可以在腳本中修改 `burst_size` (例如 256 或 1024)。
+這會處理 `traces/` 目錄下的所有 `.trace` 檔案，並在終端機印出所有結果的總表。
 
-### 2. 執行 DRAMSys
-使用提供的設定檔執行模擬：
-
-**FIFO Scheduler:**
+**執行 x32 介面寬度測試 (128B Seq/Rand Read):**
 ```bash
-DRAMSys/build/bin/DRAMSys configs/sim_fifo_interleaved.json
+python3 run_x32_benchmark.py
 ```
+這會專門測試 x32 架構下的 128B 讀取效能，並將結果輸出至 `LP4_x32_128B_read_rslt.txt`。
 
-**FR-FCFS Scheduler:**
-```bash
-DRAMSys/build/bin/DRAMSys configs/sim_frfcfs_interleaved.json
-```
+### 2. 執行合成流量分析 (Synthetic Traffic - Interleaved)
+如果您想自訂流量並測試 FIFO vs FR-FCFS：
 
-### 3. 修改設定
-*   **Buffer Size**: 修改 `.json` 檔案中的 `RequestBufferSize` (例如 64, 128, 256)。
-*   **Refresh Policy**: 修改 `.json` 檔案中的 `RefreshPolicy` (例如 "PerBank", "NoRefresh")。
-*   **Data Length**: 需同時修改 `generate_trace.py` 中的 `burst_size` 以及 `.json` 檔案中的 `dataLength` 以保持一致。
+1. **產生 Trace**:
+   修改並執行 `generate_trace.py` 產生交錯的流量檔案 `configs/interleaved.stl`。
+   ```bash
+   python3 generate_trace.py
+   ```
+
+2. **執行 DRAMSys**:
+   使用提供的設定檔執行模擬：
+   ```bash
+   # FIFO Scheduler
+   DRAMSys/build/bin/DRAMSys configs/sim_fifo_interleaved.json
+
+   # FR-FCFS Scheduler
+   DRAMSys/build/bin/DRAMSys configs/sim_frfcfs_interleaved.json
+   ```
 
 ## AXI Trace Benchmark Results
 
@@ -114,16 +123,37 @@ DRAMSys/build/bin/DRAMSys configs/sim_frfcfs_interleaved.json
 | seq_write_256B.trace           | 48.28  GB/s     | 94.45           |
 | seq_write_512B.trace           | 49.42  GB/s     | 96.68           |
 
+### 深度分析：128B Sequential vs Random Read
+
+從上述數據可以看出，**128B** 的存取在 Sequential 與 Random 之間存在著高達 **4倍** 的效能落差 (86.58% vs 22.47%)。
+
+1.  **Sequential Read (高效能 - 86.58%)**:
+    *   **原理 (Row Hits)**: 循序存取會不斷讀取相鄰的位址。在 Open Page Policy 下，同一個 Bank 的 Row (Page) 會保持開啟。記憶體控制器只需要發出 `Read (CAS)` 指令即可連續提取資料。
+    *   **結果**: 匯流排利用率極高，僅有跨越 Row (Row Crossing) 或 Refresh 時會產生些微延遲。
+
+2.  **Random Read (低效能 - 22.47%)**:
+    *   **原理 (Row Thrashing)**: 隨機位址跳躍導致極高的 Row Miss 機率。記憶體控制器必須不斷關閉當前的 Row (`Precharge`, ~18ns) 並打開新的 Row (`Activate`, ~18ns) 才能讀取資料 (`CAS`, ~17ns)。
+    *   **結果**: 大量的時間被浪費在內部陣列操作 (tRP + tRCD)，導致資料匯流排處於閒置狀態。儘管有 8 個 Banks 可以進行交錯操作 (Bank Parallelism) 來隱藏部分延遲，但由於 128B 的封包太小 (在 x64 下僅需傳輸 2.5ns)，資料傳輸時間無法有效掩蓋動輒數十奈秒的命令開銷。
+
+### 深度分析：LPDDR4 x64 vs x32 (128B Reads)
+
+為了進一步驗證「資料傳輸時間如何影響整體效率」，我們進行了 **x32 架構** 的測試 (`run_x32_benchmark.py`)。在 x32 架構下，最大理論頻寬減半 (25.6 GB/s)，且傳輸 128B 的資料需要 **32 beats (2 個 Bursts)**，而非 x64 的 16 beats (1 個 Burst)。
+
+**x32 測試結果:**
+| Trace Name | Bandwidth | Utilization (%) |
+| :--- | :--- | :--- |
+| seq_read_128B | 23.71 GB/s | **92.75%** |
+| rand_read_128B | 11.15 GB/s | **43.61%** |
+
 **分析**:
-*   **Sequential Access**: FR-FCFS 在循序存取下表現極佳 (86% - 96%)，因為能夠最大化 Row Hit 並有效利用 Bank Parallelism。
-*   **Random Access**:
-    *   在小封包 (128B) 下，由於頻繁的 Row Miss 和有限的 Row Hit 機會，頻寬利用率顯著下降至 ~22%。
-    *   隨著封包大小增加 (512B)，即使是隨機存取，利用率也能提升至 ~84%，這顯示了大封包能有效攤提 Row Cycle 的開銷。
+*   **Random Read 利用率翻倍 (22% -> 43%)**: 因為在 x32 介面下，128B 的資料傳輸時間拉長了一倍 (從 2.5ns 變為 5ns)。這更長的資料傳輸時間幫助記憶體控制器更好地「掩蓋」(Amortize) 了 Bank 執行 Precharge/Activate 的時間開銷 (Overhead)。因此，儘管絕對頻寬較低，但匯流排的*利用率*顯著提升了。
+*   **結論**: 當系統受限於隨機存取的 Latency (Row Miss) 時，增加單次存取所佔用的匯流排時間 (透過較小的 Bus Width 或較大的 Request Payload 如 512B) 可以有效提升整體的利用率 (Utilization %)。
 
 ## 檔案列表
-*   `run_all_traces.py`: 自動化執行 `traces/` 目錄下所有 AXI Trace 的腳本。
-*   `axi_to_stl.py`: AXI 格式轉 DRAMSys STL 格式的轉換工具。
-*   `generate_trace.py`: 產生 STL Trace 的 Python 腳本。
+*   `run_all_traces.py`: 自動化執行 `traces/` 目錄下所有 AXI Trace 的腳本 (x64)。
+*   `run_x32_benchmark.py`: 專門針對 x32 介面執行 128B Trace 的腳本。
+*   `axi_to_stl.py`: AXI 格式轉 DRAMSys STL 格式的轉換工具 (支援 `--mask` 位址過濾)。
+*   `generate_trace.py`: 產生自訂交錯 STL Trace 的 Python 腳本。
 *   `configs/`: 包含模擬設定檔 (`.json`) 與 Trace 檔 (`.stl`)。
 *   `result/`: 存放模擬結果 Log (`.txt`)。
-*   `analysis_fifo_vs_frfcfs.txt`: 詳細的英文分析報告。
+*   `analysis_seq_vs_rand_128B.txt`: 128B 循序與隨機讀取的詳細英文分析。
