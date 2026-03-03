@@ -29,9 +29,20 @@
 | seq_write_64B.trace | 97.89 | 97.89 | 97.89 | 97.82 | 97.89 | 97.89 | 98.57 | 98.57 | 98.57 | 98.57 | 98.57 | 98.57 |
 
 ## 分析與總結 (Analysis)
-### 1. Bank 數量 (8 vs 16 vs 32) 對效能的影響
-*   **隨機存取 (Random Access)**: 增加 Bank 數量 (8 -> 16 -> 32) 會顯著提升利用率。因為隨機位址分散在不同 Bank 的機率增加，減少了 Bank Conflict (同一個 Bank 的不同 Row 競爭)，讓 FR-FCFS 有更高的 Bank-Level Parallelism (BLP)。在 32 Bank 時，大部分隨機 Trace 的表現都能達到甚至超越 16 Bank，趨近於平台極限。
-*   **循序存取 (Sequential Access)**: Bank 數量的增加對循序存取**幾乎沒有幫助**。因為循序存取主要依賴 **Row Hit** (連續讀取同一個已經開啟的 Row)，根本不需要切換 Bank，因此瓶頸始終卡在 Data Bus 傳輸速度上。
+
+### 深度釋疑：為什麼 rand_read_128B 和 rand_read_64B 的 Utilization (%) 幾乎一樣？
+*   **LPDDR4 的最小 Burst Length (BL) 限制**: LPDDR4 規範的標準 Burst Length 是 **16**。這代表每次在資料匯流排上傳輸，都**必須**連續傳輸 16 個 beats (半個 clock cycle 傳一筆)。
+*   **以 x64 (8 Bytes) 為例**: 一個標準的 BL16 傳輸會搬運 $16 \times 8 = \mathbf{128 \text{ Bytes}}$ 的資料。
+*   **64B 的悲劇**: 當你的 AXI trace 要求讀取 64B 的資料時，記憶體控制器依然必須向 DRAM 發出一個 BL16 的指令，然後 DRAM 還是會吐出 128B 的資料（雖然你只需要一半）。這導致在時間軸上，64B 的請求跟 128B 的請求**佔用了完全一樣的資料匯流排時間 (Data Burst Time)**，且都需要經歷一模一樣的 tRP/tRCD 延遲。這就是為什麼兩者的匯流排忙碌比例 (Utilization %) 算出來會近乎完全一致。
+
+### 深度釋疑：為什麼 8-Bank 到 16-Bank，rand_read_128B 的提升這麼少 (23.9% -> 24.8%)，但 rand_read_512B 提升很多 (89.6% -> 95.3%)？
+*   **tFAW (Four Activate Window) 的限制**: 這是一個極度重要的 DRAM 時序限制！tFAW 規定了在任何一段滾動的時間視窗內，最多只能發出 4 個 Activate (開啟 Row) 指令。
+*   **對於 128B (小封包隨機存取)**: 隨機存取意味著大量的 Activate 指令。由於 128B 傳輸得太快 (只有一個 BL16，約幾奈秒)，控制器很快就會發出第 5 個 Activate，然後它就會**直接撞上 tFAW 限制**被迫暫停等待。這導致即使你有 16 個甚至 32 個 Bank 可以平行操作 (Bank Parallelism)，控制器也被 tFAW 綁住手腳，無法同時啟動這些 Bank。因此，即使 Bank 變多，128B 小封包的利用率依然會被死死卡在低點 (大約 25% 左右就是 tFAW 的理論極限)。
+*   **對於 512B (大封包隨機存取)**: 512B 需要傳輸 4 個 BL16，資料在匯流排上傳輸的時間非常長。因為資料傳輸佔用的時間長，等傳完這 4 筆資料時，tFAW 的時間視窗通常已經過去了，控制器可以沒有顧忌地繼續發出下一個 Activate。在沒有 tFAW 限制的情況下，更多的 Bank (16-Bank) 就能完美發揮其**減少 Bank Conflict** 的優勢，讓下一個 512B 的請求可以提早去別的 Bank 進行 Activate 操作，進而大幅推升利用率。
+
+### 1. Bank 數量 (8 vs 16 vs 32) 對整體效能的影響
+*   **隨機存取 (Random Access)**: 增加 Bank 數量 (8 -> 16 -> 32) 能減少 Bank Conflict，提升 Bank-Level Parallelism (BLP)。但如上所述，必須要**避開 tFAW 的限制** (透過加長 Burst Size 如 512B，或降速)，Bank 數量的紅利才能真正轉換成匯流排利用率的提升。
+*   **循序存取 (Sequential Access)**: Bank 數量的增加對循序存取**幾乎沒有幫助**。因為循序存取主要依賴 **Row Hit**，根本不需要頻繁切換 Bank 執行 Activate，因此瓶頸始終卡在 Data Bus 的理論極限上。
 
 ### 2. Bus Width (x64 vs x32) 與 Burst Time 的攤提效應
 *   在所有測試的頻率下，**x32 的 Utilization (%) 都會高於 x64**。
