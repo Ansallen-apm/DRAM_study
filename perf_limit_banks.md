@@ -26,5 +26,11 @@
 2.  **隨機存取 (Random Access) 與 tFAW 的交互作用**:
     *   在較慢的時脈 (4266 MT/s) 且較窄的匯流排 (x32) 下，傳輸一筆 128B 的資料需要耗費相對較長的絕對時間 (Burst Time)。
     *   因為資料傳輸時間拉長了，記憶體控制器在短時間內發出 Activate (開 Row) 的頻率就會降低。這代表它**比較不容易撞到 tFAW (Four Activate Window)** 的限制天花板。
-    *   **結果**: 因為 tFAW 的束縛被變相放寬了，我們可以看到 `rand_write_128B` 的利用率從 8 Banks 的 **68.62%** 明顯成長到 16 Banks 的 **71.54%**。這證實了當 tFAW 不是唯一死穴時，增加 Bank 數量帶來的 Bank-Level Parallelism (BLP) 是能發揮作用的，因為更多的 Bank 減少了 Bank Conflict 的機率。
-    *   有趣的是，從 16 Banks 增加到 32 Banks 時，大部分隨機測試的成長幅度幾乎停滯 (例如 `rand_write_128B` 僅從 71.54% 變成 71.58%)。這暗示在 4266 x32 的硬體時序下，16 個 Bank 已經足以提供足夠的交錯空間來隱藏大部分的 tRP/tRCD 延遲，32 Bank 雖然提供了更多並行度，但系統已經達到了另一種瓶頸 (可能是其他指令時序限制或資料匯流排切換極限)。
+    *   **結果**: 因為 tFAW 的束縛被變相放寬了，我們可以看到 `rand_write_128B` 的利用率從 8 Banks 的 **68.62%** 明顯成長到 16 Banks 的 **71.54%**。這證實了增加 Bank 數量帶來的 Bank-Level Parallelism (BLP) 是能發揮作用的，因為更多的 Bank 減少了 Bank Conflict 的機率。
+    *   **為什麼停滯在 ~71%？(數學證明)**: 從 16 Banks 增加到 32 Banks 時，`rand_read_128B` 的利用率幾乎停滯在 **71%** 左右。這是完全合理的，因為我們撞到了**理論極限**。
+        *   在 LPDDR4-4266 設定中，`tFAW` (Four Activate Window) 是 **86 個 Clock Cycles**。
+        *   在 x32 介面下傳輸 128B 資料，需要 32 個 beats，也就是 **16 個 Clock Cycles**。
+        *   在一個 tFAW 視窗 (86 cycles) 內，系統**最多只能發出 4 個 Activate 指令** (也就是讀取 4 次 128B)。
+        *   這 4 次讀取總共會佔用資料匯流排 $4 \times 16 = 64$ 個 Clock Cycles。
+        *   **理論最高利用率** = $64 \div 86 \approx \mathbf{74.4\%}$。
+        *   考慮到 Refresh (即使關閉，排程器仍有其他 command 佔用時間) 與指令匯流排競爭，模擬跑出的 **71.38%** 已經是該硬體規格在物理法則下的極限。因此，即使你給它 100 個 Bank，利用率也絕對不可能突破 74.4%。
