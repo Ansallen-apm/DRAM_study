@@ -175,7 +175,8 @@ def run_simulation(config_path, sim_name):
     if os.path.exists(log_file):
         with open(log_file, 'r') as log:
             for line in log:
-                if "AVG BW:" in line and "IDLE" not in line:
+                # Only match "DRAMSys.controllerX       AVG BW:" (ignore .raX or system total if any)
+                if "AVG BW:" in line and "IDLE" not in line and "ra" not in line:
                     parts = line.split("|")
                     if len(parts) >= 3:
                         try:

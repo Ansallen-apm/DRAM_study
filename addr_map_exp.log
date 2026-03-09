@@ -1,0 +1,10 @@
+Trace Name                     | Total Bandwidth (GB/s)    | Avg Channel Utilization (%)
+------------------------------------------------------------------------------------------
+rand_read_128B.trace           | 29.30                     | 85.88
+rand_read_256B.trace           | 31.96                     | 93.69
+rand_write_128B.trace          | 29.29                     | 85.83
+rand_write_256B.trace          | 32.20                     | 94.37
+seq_read_128B.trace            | 33.96                     | 99.57
+seq_read_256B.trace            | 33.98                     | 99.59
+seq_write_128B.trace           | 34.08                     | 99.88
+seq_write_256B.trace           | 34.08                     | 99.91
