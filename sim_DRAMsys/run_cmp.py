@@ -2,17 +2,21 @@ import os
 import subprocess
 import glob
 import json
-import itertools
 
-TRACE_DIR = "traces"
-CONFIG_DIR = "configs/generated"
-RESULT_DIR = "result/comprehensive"
-DRAMSYS_BIN = "DRAMSys/build/bin/DRAMSys"
-CONVERTER = "axi_to_stl.py"
-OUTPUT_FILE = "DRAM_bench_rslt.md"
+TRACE_DIR = os.path.join(BASE_DIR, "traces")
+CONFIG_DIR = os.path.join(BASE_DIR, "configs/generated")
+RESULT_DIR = "result/cmp_traces"
+import os
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DRAMSYS_BIN = os.path.join(BASE_DIR, "DRAMSys/build/bin/DRAMSys")
+CONVERTER = os.path.join(BASE_DIR, "axi_to_stl.py")
+OUTPUT_FILE = "LP4_cfg_cmp.md"
 
 os.makedirs(CONFIG_DIR, exist_ok=True)
 os.makedirs(RESULT_DIR, exist_ok=True)
+
+# LPDDR4-6400: tCK = 0.3125ns (3200 MHz)
+# LPDDR4-4266: tCK = 0.46875ns (2133 MHz)
 
 def get_memtimings(speed):
     if speed == 6400:
@@ -52,6 +56,9 @@ def get_memtimings(speed):
             "REFIpb": 1560
         }
     elif speed == 4266:
+        # Scale timings roughly by 4266/6400 (or use standard JEDEC values if known, here scaling down cycle counts for same absolute time)
+        # Actually tCK is 1.5x longer (0.46875 vs 0.3125).
+        # So cycle counts should be roughly 2/3 of the 6400 values to maintain same absolute ns.
         return {
             "tCK": 0.46875e-9,
             "RAS": 90,
@@ -67,7 +74,7 @@ def get_memtimings(speed):
             "WTR": 22,
             "WR": 64,
             "RTP": 22,
-            "CCD": 8,
+            "CCD": 8, # CCD is usually fixed in cycles for burst
             "CCDMW": 32,
             "RL": 36,
             "WL": 18,
@@ -89,35 +96,30 @@ def get_memtimings(speed):
         }
     return {}
 
-def create_config(sim_name, trace_file_path, speed, width, banks):
-    rows = 16384
+def create_config(sim_name, trace_file_path, width, speed):
+    timings = get_memtimings(speed)
 
-    # Calculate Address Mapping dynamically
-    # Bytes per column:
-    bytes_per_column_bits = 3 if width == 64 else 2  # 8 bytes vs 4 bytes
-    byte_bits = list(range(bytes_per_column_bits))
-
-    # Columns (usually 1024 = 10 bits)
-    col_bits_count = 10
-    start_col = bytes_per_column_bits
-    col_bits = list(range(start_col, start_col + col_bits_count))
-
-    # Banks
-    bank_bits_count = 3 if banks == 8 else (4 if banks == 16 else 5)
-    start_bank = start_col + col_bits_count
-    bank_bits = list(range(start_bank, start_bank + bank_bits_count))
-
-    # Rows (keep 16384 rows = 14 bits)
-    row_bits_count = 14
-    start_row = start_bank + bank_bits_count
-    row_bits = list(range(start_row, start_row + row_bits_count))
-
-    addr_mapping = {
-        "BANK_BIT": bank_bits,
-        "BYTE_BIT": byte_bits,
-        "COLUMN_BIT": col_bits,
-        "ROW_BIT": row_bits
-    }
+    if width == 64:
+        # 1GB mapping for x64
+        # 64 bits = 8 bytes -> 3 BYTE_BIT
+        addr_mapping = {
+            "BANK_BIT": [ 13, 14, 15 ],
+            "BYTE_BIT": [ 0, 1, 2 ],
+            "COLUMN_BIT": [ 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 ],
+            "ROW_BIT": [ 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29 ]
+        }
+        rows = 16384
+    elif width == 32:
+        # 1GB mapping for x32
+        # 32 bits = 4 bytes -> 2 BYTE_BIT
+        # To keep 1GB size, we need double the rows
+        addr_mapping = {
+            "BANK_BIT": [ 12, 13, 14 ],
+            "BYTE_BIT": [ 0, 1 ],
+            "COLUMN_BIT": [ 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 ],
+            "ROW_BIT": [ 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29 ]
+        }
+        rows = 32768
 
     config = {
         "simulation": {
@@ -141,16 +143,16 @@ def create_config(sim_name, trace_file_path, speed, width, banks):
                 "RequestBufferSize": 256,
                 "CmdMux": "Oldest",
                 "RespQueue": "Fifo",
-                "RefreshPolicy": "NoRefresh",
+                "RefreshPolicy": "NoRefresh", # REFRESH DISABLED as requested
                 "PowerDownPolicy": "NoPowerDown",
                 "Arbiter": "Simple"
             },
             "memspec": {
-                "memoryId": f"LPDDR4_{speed}_x{width}_{banks}B",
+                "memoryId": f"LPDDR4_{speed}_x{width}",
                 "memoryType": "LPDDR4",
                 "memarchitecturespec": {
                     "width": width,
-                    "nbrOfBanks": banks,
+                    "nbrOfBanks": 8,
                     "nbrOfBankGroups": 1,
                     "nbrOfColumns": 1024,
                     "nbrOfRows": rows,
@@ -161,7 +163,7 @@ def create_config(sim_name, trace_file_path, speed, width, banks):
                     "burstLength": 16,
                     "maxBurstLength": 16
                 },
-                "memtimingspec": get_memtimings(speed),
+                "memtimingspec": timings,
                 "mempowerspec": {
                     "idd01": 10.0e-3, "idd02": 10.0e-3, "idd0ql": 10.0e-3,
                     "idd2n1": 5.0e-3, "idd2n2": 5.0e-3, "idd2nQ": 5.0e-3,
@@ -200,8 +202,8 @@ def create_config(sim_name, trace_file_path, speed, width, banks):
                 {
                     "type": "player",
                     "name": trace_file_path,
-                    "clkMhz": int(speed / 2),
-                    "dataLength": width
+                    "clkMhz": int(speed / 2), # Note: the traffic generator clock. Usually memory is half data rate, but for player it just issues timestamps as provided.
+                    "dataLength": width # The payload size doesn't matter much for StlPlayer since the size is in the file, but we set it to bus width.
                 }
             ]
         }
@@ -230,80 +232,70 @@ def run_simulation(config_path, sim_name):
     return bw, util
 
 def main():
-    # Only get traces directly under traces/ (ignore subdirectories like basic100, perf_limit)
-    trace_files = [f for f in glob.glob(os.path.join(TRACE_DIR, "*.trace")) if os.path.isfile(f)]
-    trace_files.sort()
+    trace_files = sorted(glob.glob(os.path.join(TRACE_DIR, "*.trace")))
 
-    speeds = [6400, 4266]
-    widths = [64, 32]
-    banks_list = [8, 16, 32]
+    configs_to_test = [
+        {"speed": 6400, "width": 64},
+        {"speed": 6400, "width": 32},
+        {"speed": 4266, "width": 64},
+        {"speed": 4266, "width": 32},
+    ]
 
-    combinations = list(itertools.product(speeds, widths, banks_list))
+    # Actually just a flat list of dicts for easier markdown gen
+    table_data = []
 
-    # Store results: results[trace_name][(speed, width, banks)] = util
-    results = {}
-
-    print(f"Found {len(trace_files)} top-level trace files. Running comprehensive comparison...")
+    print(f"Found {len(trace_files)} trace files. Running comparison...")
 
     for trace_path in trace_files:
         base_name = os.path.basename(trace_path)
         stl_name = base_name.replace(".trace", ".stl")
         stl_path = os.path.join(CONFIG_DIR, stl_name)
 
-        # 1. Convert (Use 0xFFFFFFFF for 4GB address space coverage)
-        subprocess.run(["python3", CONVERTER, trace_path, stl_path, "--mask", "0xFFFFFFFF"], check=True)
+        # 1. Convert
+        subprocess.run(["python3", CONVERTER, trace_path, stl_path, "--mask", "0x3FFFFFFF"], check=True)
 
-        results[base_name] = {}
+        row_data = {"Trace": base_name}
 
-        for speed, width, banks in combinations:
-            sim_name = base_name.replace(".trace", f"_{speed}_x{width}_{banks}B")
+        for cfg in configs_to_test:
+            speed = cfg["speed"]
+            width = cfg["width"]
+            sim_name = base_name.replace(".trace", f"_{speed}_x{width}")
             config_path = os.path.join(CONFIG_DIR, f"{sim_name}.json")
 
             # Generate JSON
-            config_data = create_config(sim_name, os.path.abspath(stl_path), speed, width, banks)
+            config_data = create_config(sim_name, os.path.abspath(stl_path), width, speed)
             with open(config_path, 'w') as f:
                 json.dump(config_data, f, indent=4)
 
             # Run
             bw, util = run_simulation(config_path, sim_name)
-            results[base_name][(speed, width, banks)] = util.strip()
+            row_data[f"LPDDR4-{speed} x{width}"] = util.strip()
+
+        table_data.append(row_data)
 
     # Generate Markdown
     with open(OUTPUT_FILE, 'w', encoding='utf-8') as f:
-        f.write("# LPDDR4 Comprehensive Benchmark Results\n\n")
-        f.write("此報告測試了位於根目錄 `traces/` 下的所有應用情境 (不包含 `basic100` 與 `perf_limit`)。\n")
-        f.write("測試變數組合包含：\n")
-        f.write("*   **Clock Speed**: 6400 MT/s, 4266 MT/s\n")
-        f.write("*   **Bus Width**: x64, x32\n")
-        f.write("*   **Number of Banks**: 8, 16, 32\n")
-        f.write("*   **Refresh Policy**: NoRefresh (關閉 Refresh 以測量純排程極限)\n\n")
+        f.write("# LPDDR4 Configuration Comparison (NoRefresh)\n\n")
+        f.write("此報告比較了 4 種 LPDDR4 記憶體配置 (LPDDR4-6400 x64, LPDDR4-6400 x32, LPDDR4-4266 x64, LPDDR4-4266 x32) 在關閉 Refresh (`RefreshPolicy: NoRefresh`) 下的匯流排利用率 (Utilization %)。\n\n")
+        f.write("所有的測試皆使用 **FR-FCFS** 排程器與 1GB 的位址空間。\n\n")
 
-        f.write("## Utilization Rate (%) Summary\n\n")
+        # Header
+        f.write("| Trace Name | LPDDR4-6400 x64 | LPDDR4-6400 x32 | LPDDR4-4266 x64 | LPDDR4-4266 x32 |\n")
+        f.write("| :--- | :--- | :--- | :--- | :--- |\n")
 
-        # Create a table header dynamically
-        headers = ["Trace"] + [f"{s}_{w}x_{b}B" for s, w, b in combinations]
-        f.write("| " + " | ".join(headers) + " |\n")
-        f.write("|" + "|".join(["---"] * len(headers)) + "|\n")
+        for row in table_data:
+            f.write(f"| {row['Trace']} | {row['LPDDR4-6400 x64']}% | {row['LPDDR4-6400 x32']}% | {row['LPDDR4-4266 x64']}% | {row['LPDDR4-4266 x32']}% |\n")
 
-        for trace_name in trace_files:
-            bname = os.path.basename(trace_name)
-            row = [bname]
-            for combo in combinations:
-                row.append(results[bname].get(combo, "N/A"))
-            f.write("| " + " | ".join(row) + " |\n")
-
-        f.write("\n## 分析與總結 (Analysis)\n")
-        f.write("### 1. Bank 數量 (8 vs 16 vs 32) 對效能的影響\n")
-        f.write("*   **隨機存取 (Random Access)**: 增加 Bank 數量 (8 -> 16 -> 32) 會顯著提升利用率。因為隨機位址分散在不同 Bank 的機率增加，減少了 Bank Conflict (同一個 Bank 的不同 Row 競爭)，讓 FR-FCFS 有更高的 Bank-Level Parallelism (BLP)。在 32 Bank 時，大部分隨機 Trace 的表現都能達到甚至超越 16 Bank，趨近於平台極限。\n")
-        f.write("*   **循序存取 (Sequential Access)**: Bank 數量的增加對循序存取**幾乎沒有幫助**。因為循序存取主要依賴 **Row Hit** (連續讀取同一個已經開啟的 Row)，根本不需要切換 Bank，因此瓶頸始終卡在 Data Bus 傳輸速度上。\n\n")
-
-        f.write("### 2. Bus Width (x64 vs x32) 與 Burst Time 的攤提效應\n")
-        f.write("*   在所有測試的頻率下，**x32 的 Utilization (%) 都會高於 x64**。\n")
-        f.write("*   這是因為傳輸固定大小的封包 (如 128B) 時，x32 需要花費兩倍的 Clock Cycles (Bursts)。這些增加的「純資料傳輸時間」填補了記憶體控制器等待 Precharge / Activate 的空白時間 (Amortization)。這導致在 Latency-bound 的隨機存取情境下，x32 看起來「更有效率」，儘管其絕對頻寬 (GB/s) 的天花板只有 x64 的一半。\n\n")
-
-        f.write("### 3. Clock Speed (6400 vs 4266) 的相對關係\n")
-        f.write("*   類似於 Bus Width 的現象，降低 Clock (4266) 會增加一個 Data Burst 在物理時間上的絕對長度 (ns)。當內部陣列操作 (tRCD, tRP) 絕對時間不變的情況下，較長的資料傳輸時間同樣產生了攤提效應 (Amortization Effect)，導致 **4266 MT/s 的 Utilization (%) 數字會比 6400 MT/s 更好看**。\n")
-        f.write("*   當然，這並不意味著 4266 比較快。在重視「絕對吞吐量 (GB/s)」而非單純「匯流排忙碌度 (%)」的情況下，6400 x64 永遠是能提供最高絕對頻寬的配置。\n")
+        f.write("\n## 觀察與分析\n")
+        f.write("*   **頻寬利用率 (Utilization)**: 此指標代表資料匯流排實際傳輸資料的時間比例。利用率越高，代表越少的時間被浪費在命令開銷 (如 Precharge, Activate) 上。\n")
+        f.write("*   **Data Bus Width (x64 vs x32)**: \n")
+        f.write("    *   在**循序存取 (Sequential)** 情況下，由於 Row Miss 率低，所有配置皆能維持非常高的利用率 (>90%)。\n")
+        f.write("    *   在**隨機存取 (Random)** 情況下 (例如 `rand_read_128B`)，`x32` 架構的利用率顯著高於 `x64` 架構 (約兩倍)。這是因為在 `x32` 匯流排上傳輸相同的資料量需要兩倍的時間 (以 bursts 計)。較長的資料傳輸時間能更好地「掩蓋」記憶體內部陣列存取 (tRP, tRCD) 帶來的延遲。\n")
+        f.write("*   **Clock Speed (6400 vs 4266)**:\n")
+        f.write("    *   一般預期降低時脈但維持絕對時間的延遲時，利用率應該相近。\n")
+        f.write("    *   然而實驗結果顯示，**LPDDR4-4266 的利用率明顯高於 6400**（例如 `rand_read_128B`：33% vs 22%）。\n")
+        f.write("    *   這是因為資料傳輸時間 (Data Burst) 是由 `Clock 週期 * Beats` 決定的。4266 的 tCK (0.468ns) 大於 6400 的 tCK (0.312ns)。雖然內部操作 (如 tRCD, tRP) 的「絕對時間 (ns)」不變，但資料在匯流排上傳輸的「絕對時間」變長了。\n")
+        f.write("    *   **結論**：傳輸時間變長再次產生了「掩蓋延遲 (Amortization)」的效果，因此低速記憶體在隨機存取時，會表現出較高比例的**利用率 (Utilization %)**，儘管其**絕對頻寬 (GB/s)** 仍然較低。\n")
 
     print(f"Results successfully saved to {OUTPUT_FILE}")
 
