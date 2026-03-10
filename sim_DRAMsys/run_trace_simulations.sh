@@ -1,6 +1,10 @@
 #!/bin/bash
 # Script to run DRAMSys simulations with different trace configurations
 
+# Ensure we are in sim_DRAMsys dir
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
+cd "$DIR"
+
 BIN=DRAMSys/build/bin/DRAMSys
 RESULTS_FILE=trace_results.txt
 TEMPLATE_DIR=configs/templates

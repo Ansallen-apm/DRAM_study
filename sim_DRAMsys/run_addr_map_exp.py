@@ -3,11 +3,13 @@ import subprocess
 import glob
 import json
 
-TRACE_DIR = "traces/perf_limit"
-CONFIG_DIR = "configs/generated"
+TRACE_DIR = os.path.join(BASE_DIR, "traces", "perf_limit")
+CONFIG_DIR = os.path.join(BASE_DIR, "configs/generated")
 RESULT_DIR = "result/addr_map_exp"
-DRAMSYS_BIN = "DRAMSys/build/bin/DRAMSys"
-CONVERTER = "axi_to_stl.py"
+import os
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DRAMSYS_BIN = os.path.join(BASE_DIR, "DRAMSys/build/bin/DRAMSys")
+CONVERTER = os.path.join(BASE_DIR, "axi_to_stl.py")
 OUTPUT_FILE = "addr_map_exp.log"
 
 os.makedirs(CONFIG_DIR, exist_ok=True)

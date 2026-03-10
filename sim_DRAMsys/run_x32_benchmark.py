@@ -3,17 +3,19 @@ import subprocess
 import glob
 import json
 
-TRACE_DIR = "traces"
-CONFIG_DIR = "configs/generated"
-RESULT_DIR = "result/traces"
-DRAMSYS_BIN = "DRAMSys/build/bin/DRAMSys"
-CONVERTER = "axi_to_stl.py"
+TRACE_DIR = os.path.join(BASE_DIR, "traces")
+CONFIG_DIR = os.path.join(BASE_DIR, "configs/generated")
+RESULT_DIR = "result/x32_traces"
+import os
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DRAMSYS_BIN = os.path.join(BASE_DIR, "DRAMSys/build/bin/DRAMSys")
+CONVERTER = os.path.join(BASE_DIR, "axi_to_stl.py")
+OUTPUT_FILE = "LP4_x32_128B_read_rslt.txt"
 
 os.makedirs(CONFIG_DIR, exist_ok=True)
 os.makedirs(RESULT_DIR, exist_ok=True)
 
 def create_config(sim_name, trace_file_path):
-    # trace_file_path e.g. "/abs/path/to/configs/generated/sample.stl"
     config = {
         "simulation": {
             "simulationid": sim_name,
@@ -41,14 +43,14 @@ def create_config(sim_name, trace_file_path):
                 "Arbiter": "Simple"
             },
             "memspec": {
-                "memoryId": "LPDDR4_6400_x64",
+                "memoryId": "LPDDR4_6400_x32",
                 "memoryType": "LPDDR4",
                 "memarchitecturespec": {
-                    "width": 64,
+                    "width": 32,
                     "nbrOfBanks": 8,
                     "nbrOfBankGroups": 1,
                     "nbrOfColumns": 1024,
-                    "nbrOfRows": 16384,
+                    "nbrOfRows": 32768,
                     "nbrOfRanks": 1,
                     "nbrOfDevices": 1,
                     "nbrOfChannels": 1,
@@ -125,10 +127,10 @@ def create_config(sim_name, trace_file_path):
                 }
             },
             "addressmapping": {
-                "BANK_BIT": [ 13, 14, 15 ],
-                "BYTE_BIT": [ 0, 1, 2 ],
-                "COLUMN_BIT": [ 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 ],
-                "ROW_BIT": [ 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29 ]
+                "BANK_BIT": [ 12, 13, 14 ],
+                "BYTE_BIT": [ 0, 1 ],
+                "COLUMN_BIT": [ 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 ],
+                "ROW_BIT": [ 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29 ]
             },
             "tracesetup": [
                 {
@@ -143,26 +145,30 @@ def create_config(sim_name, trace_file_path):
     return config
 
 def main():
-    trace_files = sorted(glob.glob(os.path.join(TRACE_DIR, "*.trace")))
+    target_traces = ["seq_read_128B.trace", "rand_read_128B.trace"]
     results = []
 
-    print(f"Found {len(trace_files)} trace files.")
+    print(f"Running simulation for {len(target_traces)} traces on LPDDR4-6400 x32 (1GB)...")
 
-    for trace_path in trace_files:
-        base_name = os.path.basename(trace_path)
+    for trace_name in target_traces:
+        trace_path = os.path.join(TRACE_DIR, trace_name)
+        if not os.path.exists(trace_path):
+            print(f"Warning: Trace {trace_name} not found, skipping.")
+            continue
+
+        base_name = trace_name
         stl_name = base_name.replace(".trace", ".stl")
         stl_path = os.path.join(CONFIG_DIR, stl_name)
 
-        # 1. Convert
+        # 1. Convert (reuse existing conversion if available, or just re-run to be safe)
         print(f"Converting {base_name} to {stl_name}...")
-        # Apply 1GB mask (0x3FFFFFFF) to ensure addresses fit within simulated memory
+        # Use 1GB mask (0x3FFFFFFF)
         subprocess.run(["python3", CONVERTER, trace_path, stl_path, "--mask", "0x3FFFFFFF"], check=True)
 
         # 2. Config
-        sim_name = base_name.replace(".trace", "")
+        sim_name = base_name.replace(".trace", "_x32")
         config_path = os.path.join(CONFIG_DIR, f"{sim_name}.json")
 
-        # Use absolute path to ensure correctness regardless of resolution logic
         config_data = create_config(sim_name, os.path.abspath(stl_path))
 
         with open(config_path, 'w') as f:
@@ -173,8 +179,8 @@ def main():
         log_file = os.path.join(RESULT_DIR, f"{sim_name}.txt")
         try:
             with open(log_file, 'w') as log:
-                # Run DRAMSys from root, passing relative path to config
-                subprocess.run([DRAMSYS_BIN, config_path], stdout=log, stderr=subprocess.STDOUT, timeout=60) # Timeout 60s
+                # Run DRAMSys
+                subprocess.run([DRAMSYS_BIN, config_path], stdout=log, stderr=subprocess.STDOUT, timeout=60)
         except subprocess.TimeoutExpired:
             print(f"Simulation {sim_name} timed out.")
             with open(log_file, 'a') as log:
@@ -198,13 +204,17 @@ def main():
             "Utilization": util
         })
 
-    # Print Table
-    print("\n" + "="*70)
-    print(f"{'Trace Name':<30} | {'Bandwidth':<15} | {'Utilization (%)'}")
-    print("-" * 70)
-    for res in results:
-        print(f"{res['Trace']:<30} | {res['Bandwidth']:<15} | {res['Utilization']}")
-    print("="*70 + "\n")
+    # Write Results to File
+    with open(OUTPUT_FILE, 'w') as f:
+        f.write("======================================================================\n")
+        f.write(f"{'Trace Name':<30} | {'Bandwidth':<15} | {'Utilization (%)'}\n")
+        f.write("-" * 70 + "\n")
+        for res in results:
+            f.write(f"{res['Trace']:<30} | {res['Bandwidth']:<15} | {res['Utilization']}\n")
+        f.write("======================================================================\n")
+
+    print(f"Results saved to {OUTPUT_FILE}")
+    print(open(OUTPUT_FILE).read())
 
 if __name__ == "__main__":
     main()

@@ -3,81 +3,77 @@ import subprocess
 import glob
 import json
 
-TRACE_DIR = "traces/perf_limit"
-CONFIG_DIR = "configs/generated"
-RESULT_DIR = "result/perf_limit_banks"
-DRAMSYS_BIN = "DRAMSys/build/bin/DRAMSys"
-CONVERTER = "axi_to_stl.py"
-OUTPUT_FILE = "perf_limit_banks.md"
+TRACE_DIR = os.path.join(BASE_DIR, "traces")
+CONFIG_DIR = os.path.join(BASE_DIR, "configs/generated")
+RESULT_DIR = "result/16bank_cmp"
+import os
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DRAMSYS_BIN = os.path.join(BASE_DIR, "DRAMSys/build/bin/DRAMSys")
+CONVERTER = os.path.join(BASE_DIR, "axi_to_stl.py")
+OUTPUT_FILE = "LP4_16bank_cmp.md"
 
 os.makedirs(CONFIG_DIR, exist_ok=True)
 os.makedirs(RESULT_DIR, exist_ok=True)
 
 def get_memtimings():
-    # LPDDR4-4266 timings
+    # LPDDR4-6400 timings
     return {
-        "tCK": 0.46875e-9,
-        "RAS": 90,
-        "RCD": 39,
-        "RPab": 39,
-        "RPpb": 39,
-        "RCab": 128,
-        "RCpb": 128,
-        "RFCab": 598,
-        "RFCpb": 299,
-        "RRD": 22,
-        "FAW": 86,
-        "WTR": 22,
-        "WR": 64,
-        "RTP": 22,
+        "tCK": 0.3125e-9,
+        "RAS": 135,
+        "RCD": 58,
+        "RPab": 58,
+        "RPpb": 58,
+        "RCab": 192,
+        "RCpb": 192,
+        "RFCab": 896,
+        "RFCpb": 448,
+        "RRD": 32,
+        "FAW": 128,
+        "WTR": 32,
+        "WR": 96,
+        "RTP": 32,
         "CCD": 8,
         "CCDMW": 32,
-        "RL": 36,
-        "WL": 18,
-        "DQSCK": 4,
+        "RL": 56,
+        "WL": 28,
+        "DQSCK": 6,
         "DQSS": 1,
         "DQS2DQ": 2,
-        "CKE": 8,
-        "CMDCKE": 2,
-        "ESCKE": 2,
-        "PPD": 3,
+        "CKE": 12,
+        "CMDCKE": 3,
+        "ESCKE": 3,
+        "PPD": 4,
         "RPST": 0,
         "WPRE": 2,
-        "XP": 8,
-        "SR": 16,
-        "XSR": 307,
+        "XP": 12,
+        "SR": 24,
+        "XSR": 460,
         "RTRS": 1,
-        "REFI": 8320,
-        "REFIpb": 1040
+        "REFI": 12480,
+        "REFIpb": 1560
     }
 
-def create_config(sim_name, trace_file_path, banks):
-    width = 32
-    speed = 4266
-    rows = 32768 # Standard for 1GB per rank equivalent before banks multiplier
+def create_config(sim_name, trace_file_path, num_banks):
+    width = 64
+    rows = 16384
 
-    # Calculate Address Mapping dynamically for x32
-    bytes_per_column_bits = 2  # 32 bits = 4 bytes
-    byte_bits = list(range(bytes_per_column_bits))
-
-    col_bits_count = 10
-    start_col = bytes_per_column_bits
-    col_bits = list(range(start_col, start_col + col_bits_count))
-
-    bank_bits_count = 3 if banks == 8 else (4 if banks == 16 else 5)
-    start_bank = start_col + col_bits_count
-    bank_bits = list(range(start_bank, start_bank + bank_bits_count))
-
-    row_bits_count = 15 # 32768 rows
-    start_row = start_bank + bank_bits_count
-    row_bits = list(range(start_row, start_row + row_bits_count))
-
-    addr_mapping = {
-        "BANK_BIT": bank_bits,
-        "BYTE_BIT": byte_bits,
-        "COLUMN_BIT": col_bits,
-        "ROW_BIT": row_bits
-    }
+    if num_banks == 8:
+        # 1GB mapping for x64, 8 banks
+        addr_mapping = {
+            "BANK_BIT": [ 13, 14, 15 ],
+            "BYTE_BIT": [ 0, 1, 2 ],
+            "COLUMN_BIT": [ 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 ],
+            "ROW_BIT": [ 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29 ]
+        }
+    elif num_banks == 16:
+        # 2GB mapping for x64, 16 banks
+        # Add 1 bank bit, shift row bits up by 1
+        addr_mapping = {
+            "BANK_BIT": [ 13, 14, 15, 16 ],
+            "BYTE_BIT": [ 0, 1, 2 ],
+            "COLUMN_BIT": [ 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 ],
+            "ROW_BIT": [ 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30 ]
+        }
 
     config = {
         "simulation": {
@@ -101,16 +97,16 @@ def create_config(sim_name, trace_file_path, banks):
                 "RequestBufferSize": 256,
                 "CmdMux": "Oldest",
                 "RespQueue": "Fifo",
-                "RefreshPolicy": "NoRefresh",
+                "RefreshPolicy": "NoRefresh", # Refresh disabled for pure access latency comparison
                 "PowerDownPolicy": "NoPowerDown",
                 "Arbiter": "Simple"
             },
             "memspec": {
-                "memoryId": f"LPDDR4_4266_x32_{banks}B",
+                "memoryId": f"LPDDR4_6400_x64_{num_banks}B",
                 "memoryType": "LPDDR4",
                 "memarchitecturespec": {
                     "width": width,
-                    "nbrOfBanks": banks,
+                    "nbrOfBanks": num_banks,
                     "nbrOfBankGroups": 1,
                     "nbrOfColumns": 1024,
                     "nbrOfRows": rows,
@@ -160,8 +156,8 @@ def create_config(sim_name, trace_file_path, banks):
                 {
                     "type": "player",
                     "name": trace_file_path,
-                    "clkMhz": int(speed / 2),
-                    "dataLength": width
+                    "clkMhz": 3200,
+                    "dataLength": 64
                 }
             ]
         }
@@ -190,70 +186,63 @@ def run_simulation(config_path, sim_name):
     return bw, util
 
 def main():
-    trace_files = [f for f in glob.glob(os.path.join(TRACE_DIR, "*.trace")) if os.path.isfile(f)]
-    trace_files.sort()
+    trace_files = sorted(glob.glob(os.path.join(TRACE_DIR, "*.trace")))
 
-    banks_list = [8, 16, 32]
+    configs_to_test = [8, 16] # Number of Banks
+    table_data = []
 
-    # Store results: results[trace_name][banks] = util
-    results = {}
-
-    print(f"Found {len(trace_files)} perf_limit trace files. Running 8/16/32 Bank comparison for LPDDR4-4266 x32...")
+    print(f"Found {len(trace_files)} trace files. Running 8-Bank vs 16-Bank comparison...")
 
     for trace_path in trace_files:
         base_name = os.path.basename(trace_path)
         stl_name = base_name.replace(".trace", ".stl")
         stl_path = os.path.join(CONFIG_DIR, stl_name)
 
-        # 1. Convert (Use 0xFFFFFFFF for up to 4GB address space coverage)
-        subprocess.run(["python3", CONVERTER, trace_path, stl_path, "--mask", "0xFFFFFFFF"], check=True)
+        # 1. Convert (Using 0x7FFFFFFF to support up to 2GB for 16 banks)
+        subprocess.run(["python3", CONVERTER, trace_path, stl_path, "--mask", "0x7FFFFFFF"], check=True)
 
-        results[base_name] = {}
+        row_data = {"Trace": base_name}
 
-        for banks in banks_list:
-            sim_name = base_name.replace(".trace", f"_4266_x32_{banks}B")
+        for num_banks in configs_to_test:
+            sim_name = base_name.replace(".trace", f"_{num_banks}Banks")
             config_path = os.path.join(CONFIG_DIR, f"{sim_name}.json")
 
             # Generate JSON
-            config_data = create_config(sim_name, os.path.abspath(stl_path), banks)
+            config_data = create_config(sim_name, os.path.abspath(stl_path), num_banks)
             with open(config_path, 'w') as f:
                 json.dump(config_data, f, indent=4)
 
             # Run
             bw, util = run_simulation(config_path, sim_name)
-            results[base_name][banks] = util.strip()
+            row_data[f"{num_banks} Banks"] = util.strip()
+
+        table_data.append(row_data)
 
     # Generate Markdown
     with open(OUTPUT_FILE, 'w', encoding='utf-8') as f:
-        f.write("# Performance Limit Traces - Bank 數量比較 (LPDDR4-4266 x32)\n\n")
-        f.write("此報告專注於分析 **`perf_limit`** 目錄下的極限測試流量，在 **LPDDR4-4266 MT/s x32** 架構下，不同 Bank 數量 (8, 16, 32) 對匯流排利用率 (Utilization %) 的影響。\n")
-        f.write("*   **Refresh Policy**: NoRefresh\n")
-        f.write("*   **Scheduler**: FR-FCFS\n")
-        f.write("*   **Queue Size**: 256\n\n")
+        f.write("# LPDDR4-6400 x64 Bank 數量比較 (8 Banks vs 16 Banks)\n\n")
+        f.write("此報告比較了在相同的 LPDDR4-6400 x64 架構下，配備 **8 個 Banks** 與 **16 個 Banks** 的頻寬利用率差異。\n")
+        f.write("*   **Refresh**: 關閉 (`NoRefresh`) 以排除 Refresh 對排程的干擾。\n")
+        f.write("*   **Address Mask**: `0x7FFFFFFF` (最高支援 2GB 位址空間，因為 16 Banks 讓總容量變為 2GB)。\n")
+        f.write("*   **Scheduler**: FR-FCFS.\n\n")
 
-        f.write("## Utilization Rate (%) Summary\n\n")
+        # Header
+        f.write("| Trace Name | 8 Banks (Utilization) | 16 Banks (Utilization) |\n")
+        f.write("| :--- | :--- | :--- |\n")
 
-        # Create table header
-        headers = ["Trace", "8 Banks", "16 Banks", "32 Banks"]
-        f.write("| " + " | ".join(headers) + " |\n")
-        f.write("|" + "|".join(["---"] * len(headers)) + "|\n")
+        for row in table_data:
+            f.write(f"| {row['Trace']} | {row['8 Banks']}% | {row['16 Banks']}% |\n")
 
-        for trace_name in trace_files:
-            bname = os.path.basename(trace_name)
-            row = [bname]
-            for banks in banks_list:
-                row.append(results[bname].get(banks, "N/A"))
-            f.write("| " + " | ".join(row) + " |\n")
-
-        f.write("\n## 分析與總結 (Analysis)\n")
-        f.write("1.  **循序存取 (Sequential Access)**:\n")
-        f.write("    *   在 `perf_limit` 的循序存取下 (例如 `seq_read_128B.trace`)，利用率在 8/16/32 Banks 下皆高達 **99.59% ~ 99.60%** (已達物理極限)。\n")
-        f.write("    *   **原理**: 循序存取先天就具備完美的 Row Hit 特性，根本不需要切換 Bank 來隱藏延遲。因此增加 Bank 數量對連續資料流不會產生任何額外的效能紅利。\n\n")
-        f.write("2.  **隨機存取 (Random Access) 與 tFAW 的交互作用**:\n")
-        f.write("    *   在較慢的時脈 (4266 MT/s) 且較窄的匯流排 (x32) 下，傳輸一筆 128B 的資料需要耗費相對較長的絕對時間 (Burst Time)。\n")
-        f.write("    *   因為資料傳輸時間拉長了，記憶體控制器在短時間內發出 Activate (開 Row) 的頻率就會降低。這代表它**比較不容易撞到 tFAW (Four Activate Window)** 的限制天花板。\n")
-        f.write("    *   **結果**: 因為 tFAW 的束縛被變相放寬了，我們可以看到 `rand_write_128B` 的利用率從 8 Banks 的 **68.62%** 明顯成長到 16 Banks 的 **71.54%**。這證實了當 tFAW 不是唯一死穴時，增加 Bank 數量帶來的 Bank-Level Parallelism (BLP) 是能發揮作用的，因為更多的 Bank 減少了 Bank Conflict 的機率。\n")
-        f.write("    *   有趣的是，從 16 Banks 增加到 32 Banks 時，大部分隨機測試的成長幅度幾乎停滯 (例如 `rand_write_128B` 僅從 71.54% 變成 71.58%)。這暗示在 4266 x32 的硬體時序下，16 個 Bank 已經足以提供足夠的交錯空間來隱藏大部分的 tRP/tRCD 延遲，32 Bank 雖然提供了更多並行度，但系統已經達到了另一種瓶頸 (可能是其他指令時序限制或資料匯流排切換極限)。\n")
+        f.write("\n## 觀察與分析\n")
+        f.write("增加 Bank 數量 (從 8 增加到 16) 最直接的好處是提升 **Bank 平行處理能力 (Bank-Level Parallelism, BLP)**。\n\n")
+        f.write("1.  **隨機存取 (Random Access)**:\n")
+        f.write("    *   在隨機存取的 Trace 中，16 Banks 架構的利用率有顯著提升，尤其是封包越大時提升越多 (例如 `rand_write_512B` 從 69.05% 提升至 90.70%)。\n")
+        f.write("    *   **原理 (Bank Conflict 機率減半)**: 隨機存取會產生大量的 Row Miss (需要執行 Precharge + Activate)。當只有 8 個 Bank 時，控制器很容易遇到「Bank Conflict」——即多個請求同時競爭同一個 Bank 的不同 Row，導致佇列等待 (Thrashing)。\n")
+        f.write("    *   當 Bank 數量增加到 16 個時，隨機位址映射到同一個 Bank 的機率減半。這讓 FR-FCFS 排程器能更有效地發揮 **Bank-Level Parallelism (BLP)**。當一個 Bank 正在進行耗時的 Precharge 或 Activate 操作時，控制器有更高的機率找到其他處於 Idle 狀態的 Bank 進行資料傳輸 (CAS)，從而有效地隱藏了陣列操作的延遲。\n\n")
+        f.write("2.  **循序存取 (Sequential Access)**:\n")
+        f.write("    *   從結果可以看出，無論封包大小 (128B~512B)，8 Banks 與 16 Banks 在循序存取上的利用率**完全相同** (例如 `seq_read_128B` 皆為 86.39%)。\n")
+        f.write("    *   **原理 (Row Hit 主導)**: 循序存取具有極高的連續性。在 Open Page Policy 下，後續的請求幾乎都會是 **Row Hit**。控制器只需要發送 `Read/Write (CAS)` 指令即可連續傳輸資料，根本不需要頻繁切換 Bank 或開關 Row。因此，增加再多的 Bank 數量也無法提升已經被資料傳輸 (Data Bus) 瓶頸限制住的最高利用率。\n\n")
+        f.write("**結論**: 增加 Bank 數量是改善「隨機小封包存取」效能的有效手段，它賦予了記憶體控制器更高的平行調度自由度。但對於「長度夠長的循序存取」，更多的 Bank 並不會帶來顯著的頻寬提升。\n")
 
     print(f"Results successfully saved to {OUTPUT_FILE}")
 

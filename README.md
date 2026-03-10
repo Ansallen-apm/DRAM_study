@@ -2,6 +2,13 @@
 
 本專案使用 DRAMSys 模擬器分析了 **LPDDR4-6400** 記憶體在不同排程演算法 (**FIFO** vs **FR-FCFS**) 下的效能差異。重點在於探討多個 Master 在高頻寬需求與位址交錯 (Address Interleaving) 情況下的頻寬利用率 (Utilization)，以及 Buffer Size 和 Burst Size 對效能的影響。
 
+所有模擬相關的檔案、設定與測試腳本均存放在 `sim_DRAMsys/` 目錄下。
+
+如果您想了解如何執行模擬、測試與分析流量資料，請參閱：
+👉 **[模擬操作指南 (SIM_GUIDE.md)](sim_DRAMsys/SIM_GUIDE.md)**
+
+---
+
 ## 模擬環境設定 (Simulation Setup)
 
 *   **DRAM 規格**: LPDDR4-6400 x64 (1 Channel, 1 Rank, 8 Banks)
@@ -12,7 +19,7 @@
     *   **存取模式**: Sequential Read (循序讀取)
     *   **位址偏移 (Address Offset)**: 每個 Master 的起始位址相差 128KB (0, 128KB, 256KB, 384KB)。
     *   **Bank Contention**: 由於位址映射 (`BANK_BIT`: 13, 14, 15)，所有 Master 的起始位址都映射到 **Bank 0** 但不同的 Row。這創造了一個極端的 Bank Conflict 與 Row Thrashing 場景。
-    *   **產生方式**: 使用 Python 腳本 (`generate_trace.py`) 產生嚴格交錯 (Interleaved) 的 STL Trace 檔案，確保測試條件的一致性。
+    *   **產生方式**: 使用 Python 腳本產生嚴格交錯 (Interleaved) 的 STL Trace 檔案，確保測試條件的一致性。
 
 ## 實驗摘要 (Experiments Summary)
 
@@ -67,45 +74,9 @@ Request Buffer Size 決定了記憶體控制器的「視野」(Scheduling Window
 2.  **FIFO 僅適用於特定場景**: 只有在 Burst Size 非常大 (如 1KB+) 且足以掩蓋 Row Cycle Latency 時，FIFO 才具有可接受的效能。
 3.  **Buffer Size 至關重要**: 加大 Request Buffer 可以顯著提升 FR-FCFS 的效能，使其有更大的機會找到 Row Hit。
 
-## 如何執行模擬 (How to Run)
-
-### 1. 執行外部 AXI Trace 自動化測試 (Benchmark)
-專案內含多個由 `DRAM_bench` 擷取的 AXI 流量檔，可透過 Python 腳本自動轉換為 STL 格式並執行模擬：
-
-**執行全部 Trace (LPDDR4-6400 x64, 1GB):**
-```bash
-python3 run_all_traces.py
-```
-這會處理 `traces/` 目錄下的所有 `.trace` 檔案，並在終端機印出所有結果的總表。
-
-**執行 x32 介面寬度測試 (128B Seq/Rand Read):**
-```bash
-python3 run_x32_benchmark.py
-```
-這會專門測試 x32 架構下的 128B 讀取效能，並將結果輸出至 `LP4_x32_128B_read_rslt.txt`。
-
-### 2. 執行合成流量分析 (Synthetic Traffic - Interleaved)
-如果您想自訂流量並測試 FIFO vs FR-FCFS：
-
-1. **產生 Trace**:
-   修改並執行 `generate_trace.py` 產生交錯的流量檔案 `configs/interleaved.stl`。
-   ```bash
-   python3 generate_trace.py
-   ```
-
-2. **執行 DRAMSys**:
-   使用提供的設定檔執行模擬：
-   ```bash
-   # FIFO Scheduler
-   DRAMSys/build/bin/DRAMSys configs/sim_fifo_interleaved.json
-
-   # FR-FCFS Scheduler
-   DRAMSys/build/bin/DRAMSys configs/sim_frfcfs_interleaved.json
-   ```
-
 ## AXI Trace Benchmark Results
 
-使用 `run_all_traces.py` 腳本自動執行多組 AXI Trace 的模擬結果。這些 Trace 涵蓋了從 128B 到 512B 的不同存取大小，以及隨機 (Random) 與循序 (Sequential) 存取模式。所有測試均使用 **FR-FCFS** 排程演算法與 **1GB** (Mask: 0x3FFFFFFF) 記憶體空間。
+使用腳本自動執行多組 AXI Trace 的模擬結果。這些 Trace 涵蓋了從 128B 到 512B 的不同存取大小，以及隨機 (Random) 與循序 (Sequential) 存取模式。所有測試均使用 **FR-FCFS** 排程演算法與 **1GB** (Mask: 0x3FFFFFFF) 記憶體空間。
 
 | Trace Name                     | Bandwidth       | Utilization (%) |
 | :---                           | :---            | :---            |
@@ -137,7 +108,7 @@ python3 run_x32_benchmark.py
 
 ### 深度分析：LPDDR4 x64 vs x32 (128B Reads)
 
-為了進一步驗證「資料傳輸時間如何影響整體效率」，我們進行了 **x32 架構** 的測試 (`run_x32_benchmark.py`)。在 x32 架構下，最大理論頻寬減半 (25.6 GB/s)，且傳輸 128B 的資料需要 **32 beats (2 個 Bursts)**，而非 x64 的 16 beats (1 個 Burst)。
+為了進一步驗證「資料傳輸時間如何影響整體效率」，我們進行了 **x32 架構** 的測試。在 x32 架構下，最大理論頻寬減半 (25.6 GB/s)，且傳輸 128B 的資料需要 **32 beats (2 個 Bursts)**，而非 x64 的 16 beats (1 個 Burst)。
 
 **x32 測試結果:**
 | Trace Name | Bandwidth | Utilization (%) |
@@ -148,12 +119,3 @@ python3 run_x32_benchmark.py
 **分析**:
 *   **Random Read 利用率翻倍 (22% -> 43%)**: 因為在 x32 介面下，128B 的資料傳輸時間拉長了一倍 (從 2.5ns 變為 5ns)。這更長的資料傳輸時間幫助記憶體控制器更好地「掩蓋」(Amortize) 了 Bank 執行 Precharge/Activate 的時間開銷 (Overhead)。因此，儘管絕對頻寬較低，但匯流排的*利用率*顯著提升了。
 *   **結論**: 當系統受限於隨機存取的 Latency (Row Miss) 時，增加單次存取所佔用的匯流排時間 (透過較小的 Bus Width 或較大的 Request Payload 如 512B) 可以有效提升整體的利用率 (Utilization %)。
-
-## 檔案列表
-*   `run_all_traces.py`: 自動化執行 `traces/` 目錄下所有 AXI Trace 的腳本 (x64)。
-*   `run_x32_benchmark.py`: 專門針對 x32 介面執行 128B Trace 的腳本。
-*   `axi_to_stl.py`: AXI 格式轉 DRAMSys STL 格式的轉換工具 (支援 `--mask` 位址過濾)。
-*   `generate_trace.py`: 產生自訂交錯 STL Trace 的 Python 腳本。
-*   `configs/`: 包含模擬設定檔 (`.json`) 與 Trace 檔 (`.stl`)。
-*   `result/`: 存放模擬結果 Log (`.txt`)。
-*   `analysis_seq_vs_rand_128B.txt`: 128B 循序與隨機讀取的詳細英文分析。
