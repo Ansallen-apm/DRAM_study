@@ -2,10 +2,11 @@
 
 本專案使用 DRAMSys 模擬器分析了 **LPDDR4-6400** 記憶體在不同排程演算法 (**FIFO** vs **FR-FCFS**) 下的效能差異。重點在於探討多個 Master 在高頻寬需求與位址交錯 (Address Interleaving) 情況下的頻寬利用率 (Utilization)，以及 Buffer Size 和 Burst Size 對效能的影響。
 
-所有模擬相關的檔案、設定與測試腳本均存放在 `sim_DRAMsys/` 目錄下。
+所有 DRAMSys 模擬相關的檔案、設定與測試腳本均存放在 `sim_DRAMsys/` 目錄下，而 Ramulator 2 模擬器與相關操作則存放於 `sim_ramulator2/` 目錄下。
 
-如果您想了解如何執行模擬、測試與分析流量資料，請參閱：
-👉 **[模擬操作指南 (SIM_GUIDE.md)](sim_DRAMsys/SIM_GUIDE.md)**
+如果您想了解如何執行 DRAMSys 模擬、測試與分析流量資料，請參閱：
+👉 **[DRAMSys 模擬操作指南 (SIM_GUIDE.md)](sim_DRAMsys/SIM_GUIDE.md)**
+👉 **[Ramulator 2 模擬操作指南 (SIM_GUIDE.md)](sim_ramulator2/SIM_GUIDE.md)**
 
 ---
 
